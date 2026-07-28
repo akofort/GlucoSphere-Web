@@ -1,0 +1,38 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    volumes:
+      - glucosphere-data:/data
+    environment:
+      - GLUCOSPHERE_DB_PATH=/data/glucosphere.db
+      # Container defaults to UTC; app-generated "local time" text (chat system-state hint,
+      # dashboard narrative) must match the user's actual timezone, not the host's.
+      - TZ=Europe/Berlin
+      # Initial login (see README "Auth"). Set both to pick your own; if ADMIN_PASSWORD is left
+      # unset, a random one is generated on first startup and printed once to
+      # `docker compose logs backend` -- log in with it, then change it under Einstellungen ->
+      # Konto. Only used the very first time credentials are created; edit here does nothing once
+      # the `credentials` row already exists in the DB volume.
+      # - ADMIN_USERNAME=admin
+      # - ADMIN_PASSWORD=change-me
+
+  frontend:
+    build:
+      context: ./frontend
+      # Set VITE_BUILD_SHA/VITE_BUILD_TIME in the shell before `docker compose build`/`up --build`
+      # to stamp the About page with the actual deployed commit/build time (see AboutPage.tsx) --
+      # the build context here has no .git dir, so these can't be computed on the server itself.
+      args:
+        VITE_BUILD_SHA: ${VITE_BUILD_SHA:-dev}
+        VITE_BUILD_TIME: ${VITE_BUILD_TIME:-}
+    restart: unless-stopped
+    ports:
+      # 8080 is already taken by another container on the shared Docker host (fritzbox-phonebook)
+      # -- 8180 is free (checked against `docker ps`/`ss -tlnp` on 192.168.1.110 at deploy time).
+      - "8180:80"
+    depends_on:
+      - backend
+
+volumes:
+  glucosphere-data:
