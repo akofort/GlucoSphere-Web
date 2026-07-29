@@ -147,6 +147,13 @@ export default function SettingsOverviewPage() {
                 </div>
                 <div className="arrow">›</div>
               </Link>
+              <Link to="/settings/mcp-server">
+                <div>
+                  <div className="title">{t.settingsMcpServer}</div>
+                  <div className="subtitle">{t.settingsMcpServerSubtitle}</div>
+                </div>
+                <div className="arrow">›</div>
+              </Link>
               <Link to="/settings/tips">
                 <div>
                   <div className="title">{t.settingsTips}</div>

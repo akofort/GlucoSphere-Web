@@ -170,6 +170,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "googleHealthCategory": "ACTIVITY",
     "glookoCategory": "GLUCOSE_TREATMENTS",
     "withingsCategory": "BODY_METRICS",
+    # Bearer token for GlucoSphere-Web AS an MCP server (see mcp_server.py, /api/mcp) -- distinct
+    # from `mcp_servers` above, which is this app acting as an MCP CLIENT of other servers. Empty
+    # means "not yet generated"; AuthMiddleware rejects every /api/mcp request while empty.
+    "mcpServerToken": "",
 }
 
 

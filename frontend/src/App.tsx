@@ -7,6 +7,7 @@ import LoginPage from "./pages/LoginPage";
 import SettingsOverviewPage from "./pages/settings/SettingsOverviewPage";
 import LlmConfigPage from "./pages/settings/LlmConfigPage";
 import DataSourcesPage from "./pages/settings/DataSourcesPage";
+import McpServerPage from "./pages/settings/McpServerPage";
 import ProfilePage from "./pages/settings/ProfilePage";
 import AccountPage from "./pages/settings/AccountPage";
 import BackupPage from "./pages/settings/BackupPage";
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="/settings" element={<SettingsOverviewPage />} />
             <Route path="/settings/llm" element={<AdminRoute><LlmConfigPage /></AdminRoute>} />
             <Route path="/settings/data-sources" element={<AdminRoute><DataSourcesPage /></AdminRoute>} />
+            <Route path="/settings/mcp-server" element={<AdminRoute><McpServerPage /></AdminRoute>} />
             <Route path="/settings/profile" element={<ProfilePage />} />
             <Route path="/settings/account" element={<AccountPage />} />
             <Route path="/settings/backup" element={<AdminRoute><BackupPage /></AdminRoute>} />

@@ -116,6 +116,27 @@ export interface Strings {
   settingsNightscoutDisabled: string;
   settingsNoDataSource: string;
 
+  settingsMcpServer: string;
+  settingsMcpServerSubtitle: string;
+  mcpServerPageTitle: string;
+  mcpServerTokenSectionTitle: string;
+  mcpServerTokenHint: string;
+  mcpServerTokenNotGenerated: string;
+  mcpServerGenerateToken: string;
+  mcpServerRegenerateToken: string;
+  mcpServerRegenerateWarning: string;
+  mcpServerCopyToken: string;
+  mcpServerEndpointLabel: string;
+  mcpServerToolsSectionTitle: string;
+  mcpServerToolsHint: string;
+  mcpServerConfigSectionTitle: string;
+  mcpServerConfigHint: string;
+  mcpServerConfigClaudeDesktopTitle: string;
+  mcpServerConfigOpenWebUiTitle: string;
+  mcpServerConfigNoTokenHint: string;
+  mcpServerHealthSectionTitle: string;
+  mcpServerHealthHint: string;
+
   roleDiabetiker: string;
   roleFachpersonal: string;
   roleAngehoerige: string;
@@ -463,6 +484,27 @@ const de: Strings = {
   settingsNightscoutConfigured: "Nightscout konfiguriert",
   settingsNightscoutDisabled: "Nightscout konfiguriert, deaktiviert",
   settingsNoDataSource: "Keine Datenquelle konfiguriert",
+
+  settingsMcpServer: "MCP Server & API",
+  settingsMcpServerSubtitle: "Externe KI-Clients per Bearer-Token anbinden",
+  mcpServerPageTitle: "MCP Server & API",
+  mcpServerTokenSectionTitle: "Bearer-Token",
+  mcpServerTokenHint: "Sichert den MCP-Endpunkt (/api/mcp) ab, über den externe Clients (z. B. Claude Desktop, Open WebUI) auf GlucoSphere-Daten zugreifen können. Ohne gültiges Token werden alle Anfragen an /api/mcp abgelehnt.",
+  mcpServerTokenNotGenerated: "Noch kein Token generiert.",
+  mcpServerGenerateToken: "Token generieren",
+  mcpServerRegenerateToken: "Token neu generieren",
+  mcpServerRegenerateWarning: "Ein neues Token macht das alte sofort ungültig -- bereits verbundene Clients müssen neu konfiguriert werden. Fortfahren?",
+  mcpServerCopyToken: "Token kopieren",
+  mcpServerEndpointLabel: "MCP-Endpunkt",
+  mcpServerToolsSectionTitle: "Verfügbare Werkzeuge",
+  mcpServerToolsHint: "Diese 9 Werkzeuge stehen jedem Client zur Verfügung, der sich mit dem Bearer-Token oben anmeldet -- unabhängig von den in \"Datenquellen\" konfigurierten Chat-Werkzeugen.",
+  mcpServerConfigSectionTitle: "Client-Konfiguration",
+  mcpServerConfigHint: "Fertige Konfiguration zum Einfügen in den jeweiligen MCP-Client.",
+  mcpServerConfigClaudeDesktopTitle: "Claude Desktop (claude_desktop_config.json)",
+  mcpServerConfigOpenWebUiTitle: "Open WebUI / generisches SSE",
+  mcpServerConfigNoTokenHint: "Zuerst ein Token generieren, um eine fertige Konfiguration zu erhalten.",
+  mcpServerHealthSectionTitle: "Verbundene Datenquellen",
+  mcpServerHealthHint: "Health-Check der Datenquellen, die die obigen Werkzeuge tatsächlich abfragen -- grün = online, gelb = zuvor erreichbar, aktuell aber nicht, rot = nie erreichbar.",
 
   roleDiabetiker: "Diabetiker",
   roleFachpersonal: "Medizinisches Fachpersonal",
@@ -824,6 +866,27 @@ const en: Strings = {
   settingsNightscoutConfigured: "Nightscout configured",
   settingsNightscoutDisabled: "Nightscout configured, disabled",
   settingsNoDataSource: "No data source configured",
+
+  settingsMcpServer: "MCP Server & API",
+  settingsMcpServerSubtitle: "Connect external AI clients via bearer token",
+  mcpServerPageTitle: "MCP Server & API",
+  mcpServerTokenSectionTitle: "Bearer token",
+  mcpServerTokenHint: "Secures the MCP endpoint (/api/mcp) that lets external clients (e.g. Claude Desktop, Open WebUI) access GlucoSphere data. Every request to /api/mcp is rejected without a valid token.",
+  mcpServerTokenNotGenerated: "No token generated yet.",
+  mcpServerGenerateToken: "Generate token",
+  mcpServerRegenerateToken: "Regenerate token",
+  mcpServerRegenerateWarning: "A new token immediately invalidates the old one -- already-connected clients will need to be reconfigured. Continue?",
+  mcpServerCopyToken: "Copy token",
+  mcpServerEndpointLabel: "MCP endpoint",
+  mcpServerToolsSectionTitle: "Available tools",
+  mcpServerToolsHint: "These 9 tools are available to any client that authenticates with the bearer token above -- independent of the chat tools configured under \"Data sources\".",
+  mcpServerConfigSectionTitle: "Client configuration",
+  mcpServerConfigHint: "Ready-to-paste configuration for the respective MCP client.",
+  mcpServerConfigClaudeDesktopTitle: "Claude Desktop (claude_desktop_config.json)",
+  mcpServerConfigOpenWebUiTitle: "Open WebUI / generic SSE",
+  mcpServerConfigNoTokenHint: "Generate a token first to get a ready-to-use configuration.",
+  mcpServerHealthSectionTitle: "Connected data sources",
+  mcpServerHealthHint: "Health check for the data sources the tools above actually query -- green = online, yellow = reachable before but not now, red = never reachable.",
 
   roleDiabetiker: "Diabetic",
   roleFachpersonal: "Medical professional",

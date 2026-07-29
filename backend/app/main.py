@@ -10,13 +10,13 @@ import secrets
 import time
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import auth, backup, dashboard_sources, db, dexcom_share, feelfit, glooko, google_health, librelinkup, llm_providers, mcp_client, model_catalog, nightscout, oauth, prompts, tools, withings
+from . import auth, backup, dashboard_sources, db, dexcom_share, feelfit, glooko, google_health, librelinkup, llm_providers, mcp_client, mcp_server, model_catalog, nightscout, oauth, prompts, tools, withings
 
 log = logging.getLogger("glucosphere")
 
@@ -39,11 +39,25 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if not request.url.path.startswith("/api/") or request.url.path in _PUBLIC_PATHS:
             return await call_next(request)
+        if request.url.path == "/api/mcp":
+            return await self._dispatch_mcp_auth(request, call_next)
         token = request.cookies.get(auth.SESSION_COOKIE_NAME)
         user = auth.get_session_user(token)
         if user is None:
             return JSONResponse({"detail": "Nicht angemeldet."}, status_code=401)
         request.state.user = user
+        return await call_next(request)
+
+    @staticmethod
+    async def _dispatch_mcp_auth(request: Request, call_next):
+        """`/api/mcp` (GlucoSphere-Web acting AS an MCP server, see mcp_server.py) uses its own
+        bearer-token secret from Settings -> MCP Server & API instead of the session-cookie login
+        every other `/api/*` route requires -- external MCP clients (Claude Desktop, Open WebUI,
+        ...) have no browser session to present."""
+        expected = db.load_settings().get("mcpServerToken") or ""
+        header = request.headers.get("authorization", "")
+        if not expected or header != f"Bearer {expected}":
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
         return await call_next(request)
 
 
@@ -1124,6 +1138,51 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
         duration_ms=total_duration_ms, success=True, provider=provider_type, model=final_model,
     )
     return {"userMessage": user_message, "assistantMessage": assistant_message, "toolActivity": tool_activity}
+
+
+# ---------------------------------------------------------------------------
+# MCP SERVER (GlucoSphere-Web AS an MCP server, /api/mcp -- see mcp_server.py) -- the reverse role
+# of the "MCP servers" section below, which is this app acting as an MCP CLIENT of other servers.
+# ---------------------------------------------------------------------------
+
+@app.post("/api/mcp")
+async def mcp_endpoint(request: Request) -> Response:
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, status_code=400)
+
+    session_id = request.headers.get("mcp-session-id") or secrets.token_urlsafe(16)
+    headers = {"Mcp-Session-Id": session_id}
+
+    is_batch = isinstance(body, list)
+    messages = body if is_batch else [body]
+    responses = []
+    for m in messages:
+        resp = await mcp_server.handle_message(m)
+        if resp is not None:
+            responses.append(resp)
+
+    if not responses:
+        # Every message in the request was a notification (e.g. `notifications/initialized`) --
+        # nothing to respond with, per JSON-RPC 2.0.
+        return Response(status_code=202, headers=headers)
+    return JSONResponse(responses if is_batch else responses[0], headers=headers)
+
+
+@app.get("/api/mcp")
+async def mcp_get_not_supported() -> Response:
+    """Per the MCP Streamable HTTP spec: a server that does not support a standalone server-to-
+    client SSE stream (this one never pushes unsolicited notifications -- every tool here is a
+    simple, stateless request/response) MUST respond to GET with HTTP 405."""
+    return Response(status_code=405)
+
+
+@app.post("/api/mcp-server/regenerate-token")
+def regenerate_mcp_server_token(_: dict = Depends(require_admin)) -> dict:
+    token = secrets.token_urlsafe(32)
+    db.save_settings({"mcpServerToken": token})
+    return {"token": token}
 
 
 # ---------------------------------------------------------------------------

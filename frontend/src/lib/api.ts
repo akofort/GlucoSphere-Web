@@ -85,6 +85,9 @@ export interface Settings {
   googleHealthCategory: string;
   glookoCategory: string;
   withingsCategory: string;
+  /** Bearer token securing GlucoSphere-Web's own MCP server endpoint (/api/mcp, see Settings ->
+   * MCP Server & API) -- empty means not yet generated. */
+  mcpServerToken: string;
 }
 
 export interface SourceHealth {
@@ -390,4 +393,5 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ redirectUri }),
     }),
+  regenerateMcpServerToken: () => request<{ token: string }>("/mcp-server/regenerate-token", { method: "POST" }),
 };
