@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type ChatMessage, type ChatSession, type SourceOption } from "../lib/api";
+import { ClockIcon, DocumentIcon, LogoutIcon, PencilIcon, SpeakerIcon, StopIcon, TrashIcon } from "../components/Icons";
 import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
 import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
@@ -220,16 +221,13 @@ export default function ChatPage() {
         </div>
         <div className="topbar-actions">
           <button onClick={clearHistory} title={t.chatDeleteHistory} disabled={messages.length === 0}>
-            🗑️
+            <TrashIcon />
           </button>
           <button onClick={() => setShowHistory((v) => !v)} title={t.chatHistory}>
-            🕐
+            <ClockIcon />
           </button>
-          <Link to="/settings">
-            <button>⚙️</button>
-          </Link>
           <button onClick={() => logout()} title={t.accountLogout}>
-            🚪
+            <LogoutIcon />
           </button>
         </div>
 
@@ -264,9 +262,11 @@ export default function ChatPage() {
                   <span>{s.title || t.chatUntitled}</span>
                   <span style={{ display: "flex", gap: 4 }}>
                     <button onClick={(e) => startRename(s, e)} title={t.chatRename}>
-                      ✏️
+                      <PencilIcon width={16} height={16} />
                     </button>
-                    <button onClick={(e) => removeSession(s.id, e)}>🗑️</button>
+                    <button onClick={(e) => removeSession(s.id, e)}>
+                      <TrashIcon width={16} height={16} />
+                    </button>
                   </span>
                 </div>
               )
@@ -312,16 +312,23 @@ export default function ChatPage() {
                 <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: "0.75rem" }}>
                   <button
                     onClick={() => exportPdf(m, i)}
-                    style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 0 }}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 0,
+                    }}
                   >
-                    📄 {t.chatExportPdf}
+                    <DocumentIcon width={15} height={15} /> {t.chatExportPdf}
                   </button>
                   {ttsSupported && (
                     <button
                       onClick={() => toggleReadAloud(m)}
-                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 0 }}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 0,
+                      }}
                     >
-                      {speakingId === m.id ? `⏹ ${t.chatStopReading}` : `🔊 ${t.chatReadAloud}`}
+                      {speakingId === m.id ? <StopIcon width={15} height={15} /> : <SpeakerIcon width={15} height={15} />}
+                      {speakingId === m.id ? t.chatStopReading : t.chatReadAloud}
                     </button>
                   )}
                 </div>
@@ -376,8 +383,11 @@ export default function ChatPage() {
           disabled={sending}
         />
         {sending ? (
-          <button type="button" onClick={stopGenerating} className="chat-stop-btn" title={t.chatStop}>
-            ⏹ {t.chatStop}
+          <button
+            type="button" onClick={stopGenerating} className="chat-stop-btn" title={t.chatStop}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <StopIcon width={16} height={16} /> {t.chatStop}
           </button>
         ) : (
           <button type="button" onClick={() => send(input, sessionId)} disabled={!input.trim()}>

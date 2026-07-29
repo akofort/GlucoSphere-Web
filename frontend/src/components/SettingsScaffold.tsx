@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
+import { LogoutIcon } from "./Icons";
 import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
 
@@ -17,7 +18,7 @@ export default function SettingsScaffold({ title, back = "/settings", children }
         </div>
         <div className="topbar-actions">
           <button onClick={() => logout()} title={t.accountLogout}>
-            🚪
+            <LogoutIcon />
           </button>
         </div>
       </div>

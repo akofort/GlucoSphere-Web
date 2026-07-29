@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Dashboard, type DashboardSeriesPoint, type DashboardSource } from "../lib/api";
+import { DocumentIcon, LogoutIcon, RefreshIcon, SpeakerIcon, StopIcon } from "../components/Icons";
 import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
 import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
@@ -262,14 +263,11 @@ export default function OverviewPage() {
         <div className="topbar-actions">
           {dashboard?.metrics && (
             <button onClick={exportPdf} title={t.overviewExportPdf}>
-              📄
+              <DocumentIcon />
             </button>
           )}
-          <Link to="/settings">
-            <button>⚙️</button>
-          </Link>
           <button onClick={() => logout()} title={t.accountLogout}>
-            🚪
+            <LogoutIcon />
           </button>
         </div>
       </div>
@@ -281,7 +279,13 @@ export default function OverviewPage() {
               justifyContent: "center", opacity: Math.min(pullDistance / PULL_THRESHOLD, 1), transition: "height 0.1s",
             }}
           >
-            {pullDistance > PULL_THRESHOLD ? `🔄 ${t.overviewRefresh}` : "↓"}
+            {pullDistance > PULL_THRESHOLD ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <RefreshIcon width={16} height={16} /> {t.overviewRefresh}
+              </span>
+            ) : (
+              "↓"
+            )}
           </div>
         )}
         <div className="range-chips">
@@ -487,7 +491,7 @@ export default function OverviewPage() {
                   <h2 style={{ margin: 0 }}>{t.overviewSummaryTitle}</h2>
                   {ttsSupported && (
                     <button onClick={toggleReadSummary} title={t.overviewReadAloud}>
-                      {speakingSummary ? "⏹️" : "🔊"}
+                      {speakingSummary ? <StopIcon width={18} height={18} /> : <SpeakerIcon width={18} height={18} />}
                     </button>
                   )}
                 </div>

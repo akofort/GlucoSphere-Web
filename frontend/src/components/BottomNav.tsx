@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { useLanguage } from "../lib/LanguageContext";
-import { ChatIcon, OverviewIcon, SettingsIcon } from "./NavIcons";
+import { ChatIcon, OverviewIcon, SettingsIcon } from "./Icons";
 
 export default function BottomNav() {
   const { t } = useLanguage();

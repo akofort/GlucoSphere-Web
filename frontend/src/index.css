@@ -147,9 +147,11 @@ a {
 }
 
 .topbar-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
-  font-size: 1.3rem;
   padding: 6px 10px;
   border-radius: 8px;
   color: var(--text);
@@ -620,6 +622,8 @@ details.card summary:first-child {
   font-weight: 600;
 }
 .chat-history-panel .session-row button {
+  display: inline-flex;
+  align-items: center;
   background: none;
   border: none;
   color: var(--text-muted);
