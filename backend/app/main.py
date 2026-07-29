@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import auth, backup, dashboard_sources, db, dexcom_share, feelfit, glooko, google_health, librelinkup, llm_providers, mcp_client, model_catalog, nightscout, oauth, prompts, tools
+from . import auth, backup, dashboard_sources, db, dexcom_share, feelfit, glooko, google_health, librelinkup, llm_providers, mcp_client, model_catalog, nightscout, oauth, prompts, tools, withings
 
 log = logging.getLogger("glucosphere")
 
@@ -484,6 +484,80 @@ async def test_google_health(_: dict = Depends(require_admin)) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Withings API (native OAuth2 -- see withings.py)
+# ---------------------------------------------------------------------------
+
+class WithingsAuthorizeRequest(BaseModel):
+    redirectUri: str
+
+
+def _save_withings_tokens(access_token: str, refresh_token: str, expires_at: int) -> None:
+    db.save_settings({
+        "withingsAccessToken": access_token,
+        "withingsRefreshToken": refresh_token,
+        "withingsExpiresAt": expires_at,
+    })
+
+
+@app.post("/api/withings/oauth/authorize")
+def withings_oauth_authorize(req: WithingsAuthorizeRequest, _: dict = Depends(require_admin)) -> dict:
+    settings = db.load_settings()
+    state = secrets.token_urlsafe(24)
+    verifier, challenge = withings.pkce_pair()
+    try:
+        url = withings.build_authorize_url(settings.get("withingsClientId", ""), req.redirectUri, state, challenge)
+    except withings.WithingsError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db.save_settings({
+        "withingsOAuthState": state,
+        "withingsOAuthPkceVerifier": verifier,
+        "withingsOAuthRedirectUri": req.redirectUri,
+    })
+    return {"authorizeUrl": url}
+
+
+@app.get("/api/withings/oauth/callback")
+async def withings_oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> RedirectResponse:
+    target = "/settings/data-sources"
+    if error:
+        return RedirectResponse(f"{target}?withings=error&detail={error}")
+    settings = db.load_settings()
+    if not code or not state or state != settings.get("withingsOAuthState"):
+        return RedirectResponse(f"{target}?withings=error&detail=invalid_state")
+    try:
+        data = await withings.exchange_code(
+            settings.get("withingsClientId", ""), settings.get("withingsClientSecret", ""),
+            code, settings.get("withingsOAuthRedirectUri", ""), settings.get("withingsOAuthPkceVerifier", ""),
+        )
+    except withings.WithingsError as exc:
+        return RedirectResponse(f"{target}?withings=error&detail={exc}")
+    expires_at = int(time.time()) + int(data.get("expires_in", 10800))
+    db.save_settings({
+        "withingsAccessToken": data.get("access_token", ""),
+        "withingsRefreshToken": data.get("refresh_token") or settings.get("withingsRefreshToken", ""),
+        "withingsExpiresAt": expires_at,
+        "withingsOAuthState": "", "withingsOAuthPkceVerifier": "",
+    })
+    return RedirectResponse(f"{target}?withings=success")
+
+
+async def _check_withings(settings: dict) -> tuple[bool, str]:
+    try:
+        access_token = await withings.get_valid_access_token(settings, _save_withings_tokens)
+        now = int(time.time() * 1000)
+        readings = await withings.fetch_measurements(access_token, now - 30 * 24 * 60 * 60 * 1000, now)
+        return True, f"Verbindung erfolgreich -- {len(readings)} Messungen in den letzten 30 Tagen gefunden."
+    except withings.WithingsError as exc:
+        return False, str(exc)
+
+
+@app.post("/api/withings/test-connection")
+async def test_withings(_: dict = Depends(require_admin)) -> dict:
+    ok, message = await _check_withings(db.load_settings())
+    return {"success": ok, "message": message}
+
+
+# ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
 
@@ -587,9 +661,10 @@ async def get_dashboard(
     # LLM round-trips -- see dashboard_sources.py); fetching sequentially made a 2-source dashboard
     # exceed nginx's proxy timeout. Fire every source's current- and previous-range fetch at once
     # so total wall time is roughly the slowest single fetch, not the sum of all of them.
-    current_results, prev_results = await asyncio.gather(
+    current_results, prev_results, device_status = await asyncio.gather(
         asyncio.gather(*[_fetch_source_safe(s, settings, from_millis, to_millis) for s in selected]),
         asyncio.gather(*[_fetch_source_safe(s, settings, prev_from, prev_to) for s in selected]),
+        _fetch_device_status_safe(settings),
     )
 
     contributions = []  # each: (source, metrics, prev_metrics_or_None, latest_entry, entries)
@@ -617,6 +692,20 @@ async def get_dashboard(
     per_source_prev_metrics = [c[2] for c in contributions if c[2] is not None]
     contributing_names = [c[0]["name"] for c in contributions]
     latest = max((c[3] for c in contributions), key=lambda e: e.date_millis)
+
+    # Item 3's "Automatische Erkennung von Datenlücken" -- per contributing source, over the
+    # actually-requested [from_millis, to_millis] window (not just the entries that happened to
+    # come back), so a source that went silent for the LAST part of the window is caught too.
+    data_gaps = [
+        {
+            "sourceName": source["name"],
+            "startMillis": gap.start_millis,
+            "endMillis": gap.end_millis,
+            "warningText": nightscout.format_gap_warning(source["name"], gap),
+        }
+        for source, _m, _prev_m, _latest, entries in contributions
+        for gap in nightscout.detect_gaps(entries, from_millis, to_millis)
+    ]
 
     # Chart series for the Übersicht sparkline -- capped at the last 24h even for longer ranges
     # (7d/3M) to keep the graph readable and the response small, downsampled if still too dense.
@@ -671,19 +760,34 @@ async def get_dashboard(
         "combinedSourcesNote": (
             f"Kombinierte Auswertung ({', '.join(contributing_names)})" if len(contributing_names) > 1 else None
         ),
+        # Item 2's "IOB und COB als Live-Metriken im Übersicht-Dashboard" -- null/empty whenever
+        # no Nightscout devicestatus (Loop/AndroidAPS) is reporting, not an error.
+        "iobUnits": device_status.iob_units if device_status else None,
+        "cobGrams": device_status.cob_grams if device_status else None,
+        "loopStatus": device_status.loop_status if device_status else None,
+        "dataGaps": data_gaps,
     }
 
     provider_type = settings.get("llmProviderType")
     if includeNarrative and provider_type and _KEY_FIELD.get(provider_type) and settings.get(_KEY_FIELD[provider_type]):
+        iob_cob_line = _iob_cob_system_state_text(device_status).strip()
+        gaps_line = (
+            "\n\nDatenlücken im Zeitraum (bei der Zusammenfassung explizit erwähnen, nicht ignorieren):\n"
+            + "\n".join(g["warningText"] for g in data_gaps)
+        ) if data_gaps else ""
         narrative_prompt = (
-            f"Aktuelle Kennzahlen ({result['rangeLabel']}): Time in Range {metrics.tir_percent:.1f}%, "
+            f"Aktuelle Kennzahlen ({result['rangeLabel']}, Quelle: {', '.join(contributing_names)}): "
+            f"Time in Range {metrics.tir_percent:.1f}%, "
             f"Hypoglykämien {metrics.hypo_percent:.1f}%, Hyperglykämien {metrics.hyper_percent:.1f}%, "
             f"Variabilität %CV {metrics.cv_percent:.1f}%, Ø Glukose {metrics.avg_glucose:.0f} mg/dL, "
-            f"Status: {status.reason}\n\n"
-            "Schreibe dazu eine kurze Zusammenfassung (2-3 Sätze) und danach genau 3 knappe, "
+            f"Status: {status.reason}"
+            + (f"\n{iob_cob_line}" if iob_cob_line else "")
+            + gaps_line
+            + "\n\nSchreibe dazu eine kurze Zusammenfassung (2-3 Sätze) und danach genau 3 knappe, "
             "konkrete Tipps als Liste (je 1 Zeile, ohne Nummerierung/Bindestrich-Präfix -- nur der "
-            "reine Tipp-Text, getrennt durch Zeilenumbrüche). Format exakt:\nZUSAMMENFASSUNG: <text>\n"
-            "TIPPS:\n<tipp1>\n<tipp2>\n<tipp3>"
+            "reine Tipp-Text, getrennt durch Zeilenumbrüche). Nenne in der Zusammenfassung explizit "
+            "die genutzte(n) Datenquelle(n) und -- falls vorhanden -- jede gemeldete Datenlücke. "
+            "Format exakt:\nZUSAMMENFASSUNG: <text>\nTIPPS:\n<tipp1>\n<tipp2>\n<tipp3>"
         )
         if user.get("role") != "ADMIN":
             # Non-admin (MEMBER/family/care-team) accounts must not get therapy suggestions from
@@ -806,7 +910,36 @@ class SendMessageRequest(BaseModel):
 
 
 _MAX_TOOL_ITERATIONS = 5
-_SYSTEM_STATE_TIME_HINT = "\n\n[SYSTEM STATE]\nLokale Zeit: {time}\nMaßeinheit: mg/dL\n[/SYSTEM STATE]"
+_SYSTEM_STATE_TIME_HINT = "\n\n[SYSTEM STATE]\nLokale Zeit: {time}\nMaßeinheit: mg/dL{iob_cob}\n[/SYSTEM STATE]"
+
+
+async def _fetch_device_status_safe(settings: dict) -> nightscout.DeviceStatusSnapshot | None:
+    """Never raises -- an unreachable/misconfigured Nightscout instance must not break the whole
+    chat turn just because IOB/COB (item 2's "Live-Metriken ... im Prompt-Kontext") couldn't be
+    fetched this time; the model still has the dedicated get_nightscout_devicestatus tool to try
+    again explicitly if it needs the freshest possible value."""
+    if not settings.get("nightscoutApiUrl") or not settings.get("nightscoutApiEnabled", True):
+        return None
+    try:
+        return await nightscout.fetch_latest_device_status(
+            settings["nightscoutApiUrl"], settings["nightscoutApiAuthMethod"], settings["nightscoutApiSecret"],
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _iob_cob_system_state_text(status: nightscout.DeviceStatusSnapshot | None) -> str:
+    if status is None:
+        return ""
+    parts = []
+    if status.iob_units is not None:
+        parts.append(f"IOB {status.iob_units:.2f} IE")
+    if status.cob_grams is not None:
+        parts.append(f"COB {status.cob_grams:.0f} g")
+    if not parts:
+        return ""
+    stand = time.strftime("%H:%M", time.localtime(status.date_millis / 1000))
+    return f"\n{', '.join(parts)} (Quelle: Nightscout REST API, Stand {stand} Uhr)"
 
 # Same simple substring-keyword approach as the Android app's inferQueryCategory (see
 # domain/McpServerSelection.kt) -- deliberately no NLP, returns None (ambiguous/off-topic) rather
@@ -903,6 +1036,7 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
 
     app_language = user.get("appLanguage", "DE")
     main_user = _resolve_main_user(user)
+    device_status = await _fetch_device_status_safe(settings)
     system_prompt = (
         prompts.build_system_prompt(
             settings.get("systemPrompt"), user["displayName"], user["userRole"],
@@ -910,7 +1044,9 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
             main_user.get("glucoseUnit", "MG_DL"), main_user.get("insulinPump", "NONE"), main_user.get("cgmSystem", "NONE"),
             main_user_name=main_user["displayName"],
         )
-        + _SYSTEM_STATE_TIME_HINT.format(time=time.strftime("%d.%m.%Y %H:%M %Z"))
+        + _SYSTEM_STATE_TIME_HINT.format(
+            time=time.strftime("%d.%m.%Y %H:%M %Z"), iob_cob=_iob_cob_system_state_text(device_status),
+        )
         + tools.build_realtime_hint(available_tools, app_language == "EN")
     )
 

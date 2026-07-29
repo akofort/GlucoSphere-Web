@@ -136,6 +136,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "googleHealthOAuthState": "",
     "googleHealthOAuthPkceVerifier": "",
     "googleHealthOAuthRedirectUri": "",
+    # Withings Public REST API -- native OAuth2 (Authorization Code + PKCE), same shape/fields as
+    # Google Health above, see withings.py.
+    "withingsClientId": "",
+    "withingsClientSecret": "",
+    "withingsEnabled": True,
+    "withingsAccessToken": "",
+    "withingsRefreshToken": "",
+    "withingsExpiresAt": 0,
+    "withingsOAuthState": "",
+    "withingsOAuthPkceVerifier": "",
+    "withingsOAuthRedirectUri": "",
     "dexcomUsername": "",
     "dexcomPassword": "",
     "dexcomRegion": "US",
@@ -158,6 +169,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "feelfitCategory": "BODY_METRICS",
     "googleHealthCategory": "ACTIVITY",
     "glookoCategory": "GLUCOSE_TREATMENTS",
+    "withingsCategory": "BODY_METRICS",
 }
 
 

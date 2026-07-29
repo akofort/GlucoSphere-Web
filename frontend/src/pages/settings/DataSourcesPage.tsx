@@ -133,6 +133,7 @@ export default function DataSourcesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const oauthResult = searchParams.get("oauth");
   const googleHealthResult = searchParams.get("googleHealth");
+  const withingsResult = searchParams.get("withings");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [url, setUrl] = useState("");
   const [authMethod, setAuthMethod] = useState<Settings["nightscoutApiAuthMethod"]>("API_SECRET_HEADER");
@@ -190,6 +191,18 @@ export default function DataSourcesPage() {
   const [redirectUriCopied, setRedirectUriCopied] = useState(false);
   const googleHealthRedirectUri = `${window.location.origin}/api/google-health/oauth/callback`;
 
+  const [withingsClientId, setWithingsClientId] = useState("");
+  const [withingsClientSecret, setWithingsClientSecret] = useState("");
+  const [withingsEnabled, setWithingsEnabled] = useState(true);
+  const [withingsCategory, setWithingsCategory] = useState("BODY_METRICS");
+  const [withingsLoggedIn, setWithingsLoggedIn] = useState(false);
+  const [withingsTestResult, setWithingsTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [withingsTesting, setWithingsTesting] = useState(false);
+  const [withingsSaving, setWithingsSaving] = useState(false);
+  const [withingsLoggingIn, setWithingsLoggingIn] = useState(false);
+  const [withingsRedirectUriCopied, setWithingsRedirectUriCopied] = useState(false);
+  const withingsRedirectUri = `${window.location.origin}/api/withings/oauth/callback`;
+
   const [servers, setServers] = useState<McpServer[]>([]);
   const [addingServer, setAddingServer] = useState(false);
 
@@ -214,6 +227,11 @@ export default function DataSourcesPage() {
       setGoogleHealthEnabled(s.googleHealthEnabled);
       setGoogleHealthCategory(s.googleHealthCategory);
       setGoogleHealthLoggedIn(Boolean(s.googleHealthRefreshToken));
+      setWithingsClientId(s.withingsClientId);
+      setWithingsClientSecret(s.withingsClientSecret);
+      setWithingsEnabled(s.withingsEnabled);
+      setWithingsCategory(s.withingsCategory);
+      setWithingsLoggedIn(Boolean(s.withingsRefreshToken));
       setDexcomUsername(s.dexcomUsername);
       setDexcomPassword(s.dexcomPassword);
       setDexcomRegion(s.dexcomRegion);
@@ -286,6 +304,59 @@ export default function DataSourcesPage() {
       window.location.href = authorizeUrl;
     } finally {
       setGoogleHealthLoggingIn(false);
+    }
+  };
+
+  const copyWithingsRedirectUri = async () => {
+    try {
+      await navigator.clipboard.writeText(withingsRedirectUri);
+      setWithingsRedirectUriCopied(true);
+      setTimeout(() => setWithingsRedirectUriCopied(false), 2000);
+    } catch {
+      // clipboard API unavailable -- the field is still selectable/copyable manually
+    }
+  };
+
+  const saveWithings = async () => {
+    setWithingsSaving(true);
+    try {
+      const updated = await api.updateSettings({
+        withingsClientId, withingsClientSecret, withingsEnabled, withingsCategory,
+      });
+      setSettings(updated);
+    } finally {
+      setWithingsSaving(false);
+    }
+  };
+
+  const toggleWithingsEnabled = async () => {
+    const next = !withingsEnabled;
+    setWithingsEnabled(next);
+    await api.updateSettings({ withingsEnabled: next });
+  };
+
+  const testWithings = async () => {
+    setWithingsTesting(true);
+    setWithingsTestResult(null);
+    try {
+      const res = await api.testWithings();
+      setWithingsTestResult({ ok: res.success, message: res.message });
+    } catch (err) {
+      setWithingsTestResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setWithingsTesting(false);
+    }
+  };
+
+  const loginWithWithings = async () => {
+    if (!withingsClientId.trim() || !withingsClientSecret.trim()) return;
+    setWithingsLoggingIn(true);
+    try {
+      await api.updateSettings({ withingsClientId, withingsClientSecret, withingsEnabled, withingsCategory });
+      const { authorizeUrl } = await api.withingsOAuthAuthorize(withingsRedirectUri);
+      window.location.href = authorizeUrl;
+    } finally {
+      setWithingsLoggingIn(false);
     }
   };
 
@@ -467,6 +538,19 @@ export default function DataSourcesPage() {
           {googleHealthResult === "success"
             ? `✅ ${t.dataSourcesGoogleHealthLoggedIn}`
             : `❌ ${searchParams.get("detail") ?? googleHealthResult}`}
+          <button
+            onClick={() => setSearchParams({})}
+            style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", marginLeft: 10 }}
+          >
+            {t.genericClose}
+          </button>
+        </div>
+      )}
+      {withingsResult && (
+        <div className={`test-result ${withingsResult === "success" ? "ok" : "error"}`}>
+          {withingsResult === "success"
+            ? `✅ ${t.dataSourcesWithingsLoggedIn}`
+            : `❌ ${searchParams.get("detail") ?? withingsResult}`}
           <button
             onClick={() => setSearchParams({})}
             style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", marginLeft: 10 }}
@@ -728,6 +812,76 @@ export default function DataSourcesPage() {
           </button>
           <button className="btn primary" onClick={saveGoogleHealth} disabled={googleHealthSaving}>
             {googleHealthSaving ? t.genericSaving : t.genericSave}
+          </button>
+        </div>
+      </details>
+
+      <details className="card" style={{ borderLeft: "3px solid var(--rest-api-color)" }}>
+        <summary>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <HealthDot sourceId="withings" health={health} />
+            <h2>{t.dataSourcesWithingsTitle}</h2>
+            <span className="category-tag">{categoryLabels[withingsCategory] ?? withingsCategory}</span>
+            <span
+              className="category-tag"
+              style={{ color: "var(--rest-api-color)", borderColor: "var(--rest-api-color)" }}
+              title={t.dsRestApiHint}
+            >
+              ⚡ {t.dsRestApiBadge}
+            </span>
+          </div>
+          <label className="inline-toggle" onClick={(e) => e.stopPropagation()}>
+            <input type="checkbox" checked={withingsEnabled} onChange={toggleWithingsEnabled} />
+            {withingsEnabled ? t.dataSourcesActive : t.dataSourcesInactive}
+          </label>
+        </summary>
+        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{t.dataSourcesWithingsHint}</p>
+        <div className="field">
+          <label>{t.mcpEditorOAuthRedirectUriLabel}</label>
+          <input type="text" value={withingsRedirectUri} readOnly onClick={(e) => (e.target as HTMLInputElement).select()} />
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.mcpEditorOAuthRedirectUriHint}</p>
+          <button type="button" className="btn" onClick={copyWithingsRedirectUri}>
+            {withingsRedirectUriCopied ? t.genericCopied : t.genericCopy}
+          </button>
+        </div>
+        <div className="field">
+          <label>{t.dataSourcesWithingsClientId}</label>
+          <input type="text" value={withingsClientId} onChange={(e) => setWithingsClientId(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>{t.dataSourcesWithingsClientSecret}</label>
+          <input type="password" value={withingsClientSecret} onChange={(e) => setWithingsClientSecret(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>{t.dataSourcesCategoryLabel}</label>
+          <select value={withingsCategory} onChange={(e) => setWithingsCategory(e.target.value)}>
+            {Object.entries(categoryLabels).map(([id, label]) => (
+              <option key={id} value={id}>{label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ fontSize: "0.85rem", margin: "8px 0" }}>
+          {withingsLoggedIn ? `✅ ${t.dataSourcesWithingsLoggedIn}` : `⚪ ${t.dataSourcesWithingsNotLoggedIn}`}
+        </div>
+
+        {withingsTestResult && (
+          <div className={`test-result ${withingsTestResult.ok ? "ok" : "error"}`}>{withingsTestResult.message}</div>
+        )}
+
+        <div className="btn-row">
+          <button
+            className="btn"
+            onClick={loginWithWithings}
+            disabled={withingsLoggingIn || !withingsClientId.trim() || !withingsClientSecret.trim()}
+          >
+            {withingsLoggingIn ? t.genericSaving : withingsLoggedIn ? t.dataSourcesWithingsLoginAgain : t.dataSourcesWithingsLogin}
+          </button>
+          <button className="btn" onClick={testWithings} disabled={withingsTesting || !withingsLoggedIn}>
+            {withingsTesting ? t.genericTesting : t.dataSourcesTestConnection}
+          </button>
+          <button className="btn primary" onClick={saveWithings} disabled={withingsSaving}>
+            {withingsSaving ? t.genericSaving : t.genericSave}
           </button>
         </div>
       </details>

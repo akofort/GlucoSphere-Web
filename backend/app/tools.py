@@ -10,10 +10,14 @@ import json
 import time
 from typing import Any
 
-from . import db, dexcom_share, feelfit, glooko, google_health, librelinkup, mcp_client, nightscout, oauth
+from . import db, dexcom_share, feelfit, glooko, google_health, librelinkup, mcp_client, nightscout, oauth, withings
 
 NIGHTSCOUT_TOOL_NAME = "get_glucose_entries"
+NIGHTSCOUT_TREATMENTS_TOOL_NAME = "get_nightscout_treatments"
+NIGHTSCOUT_PROFILE_TOOL_NAME = "get_nightscout_profile"
+NIGHTSCOUT_DEVICESTATUS_TOOL_NAME = "get_nightscout_devicestatus"
 FEELFIT_TOOL_NAME = "get_body_composition_history"
+WITHINGS_TOOL_NAME = "get_withings_body_composition"
 GOOGLE_HEALTH_TOOL_NAME = "get_google_health_blood_glucose"
 GOOGLE_HEALTH_SLEEP_TOOL_NAME = "get_google_health_sleep"
 GOOGLE_HEALTH_STEPS_TOOL_NAME = "get_google_health_steps"
@@ -46,6 +50,10 @@ _NIGHTSCOUT_SCHEMA = {
 }
 
 _FEELFIT_SCHEMA = {"type": "object", "properties": {}}
+_WITHINGS_SCHEMA = {"type": "object", "properties": {}}
+_NIGHTSCOUT_TREATMENTS_SCHEMA = _NIGHTSCOUT_SCHEMA
+_NIGHTSCOUT_PROFILE_SCHEMA = {"type": "object", "properties": {}}
+_NIGHTSCOUT_DEVICESTATUS_SCHEMA = {"type": "object", "properties": {}}
 
 _GOOGLE_HEALTH_SCHEMA = {
     "type": "object",
@@ -148,6 +156,34 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
             "_source": "nightscout",
             "_realtime": True,
         })
+        tools.append({
+            "name": NIGHTSCOUT_TREATMENTS_TOOL_NAME,
+            "description": "Ruft Behandlungs-Einträge direkt per Nightscout-REST-API für einen Zeitraum ab: "
+                           "Bolus-Gaben (Einheiten), Kohlenhydrate/BE, Temp Basals (Rate/Prozent/Dauer) sowie "
+                           "Katheter- (CAGE/Site Change) und Sensor-Wechsel (SAGE/Sensor Change).",
+            "inputSchema": _NIGHTSCOUT_TREATMENTS_SCHEMA,
+            "_source": "nightscout",
+            "_realtime": True,
+        })
+        tools.append({
+            "name": NIGHTSCOUT_PROFILE_TOOL_NAME,
+            "description": "Ruft das aktuell aktive Therapieprofil direkt per Nightscout-REST-API ab: "
+                           "Basalratenprofil, Korrekturfaktor (ISF), BE-/KE-Faktor (ICR), BZ-Zielbereich und "
+                           "DIA (Wirkdauer des Insulins). Kein Zeitraum-Parameter -- immer das aktuell gültige Profil.",
+            "inputSchema": _NIGHTSCOUT_PROFILE_SCHEMA,
+            "_source": "nightscout",
+            "_realtime": False,
+        })
+        tools.append({
+            "name": NIGHTSCOUT_DEVICESTATUS_TOOL_NAME,
+            "description": "Ruft den aktuellsten Geräte-Status direkt per Nightscout-REST-API ab: IOB (Insulin on "
+                           "Board), COB (Carbs on Board), Loop-Statusmeldung (z. B. AndroidAPS/Loop) und, falls "
+                           "vom Loop-System gemeldet, vorhergesagte Blutzuckerwerte. Kein Zeitraum-Parameter -- "
+                           "immer der aktuellste gemeldete Stand.",
+            "inputSchema": _NIGHTSCOUT_DEVICESTATUS_SCHEMA,
+            "_source": "nightscout",
+            "_realtime": True,
+        })
     if settings.get("feelfitEmail") and settings.get("feelfitEnabled", True):
         tools.append({
             "name": FEELFIT_TOOL_NAME,
@@ -216,6 +252,19 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                                "dafür, aber kein offizieller kombinierter Score.",
                 "inputSchema": _GOOGLE_HEALTH_SCHEMA,
                 "_source": "google_health",
+                "_realtime": False,
+            })
+    if settings.get("withingsAccessToken") or settings.get("withingsRefreshToken"):
+        if settings.get("withingsEnabled", True):
+            tools.append({
+                "name": WITHINGS_TOOL_NAME,
+                "description": "Ruft Gewicht (kg) und Körperfettanteil (%) der letzten 3 Monate über die direkte "
+                               "Withings-REST-API ab, inklusive Trendrichtung je Kennzahl (steigend/fallend/stabil, "
+                               "verglichen zwischen erster und letzter Messung im Zeitraum). Direkte, native "
+                               "Integration (Blau-Kennzeichnung '⚡ Direkt-API' in den Einstellungen), keine MCP-"
+                               "Anbindung.",
+                "inputSchema": _WITHINGS_SCHEMA,
+                "_source": "withings",
                 "_realtime": False,
             })
     if settings.get("dexcomUsername") and settings.get("dexcomEnabled", True):
@@ -408,6 +457,7 @@ _NATIVE_SOURCE_NAMES = {
     "dexcom": "Dexcom",
     "librelinkup": "LibreLinkUp",
     "glooko": "Glooko",
+    "withings": "Withings",
 }
 _NATIVE_SOURCE_CATEGORY_KEYS = {
     "nightscout": "nightscoutCategory",
@@ -416,6 +466,7 @@ _NATIVE_SOURCE_CATEGORY_KEYS = {
     "dexcom": "dexcomCategory",
     "librelinkup": "libreCategory",
     "glooko": "glookoCategory",
+    "withings": "withingsCategory",
 }
 
 
@@ -484,13 +535,59 @@ async def _safe_list_tools(server: dict) -> list[mcp_client.McpTool]:
         return []
 
 
-async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp_servers: list[dict]) -> str:
-    """Never raises -- a failed tool call (server down, network blip, ...) is fed back to the
-    model as an error-flavored tool result instead of crashing the whole chat request. The model
-    can then tell the user what happened instead of the request 500ing (observed live: a
-    transient MCP connection failure here previously took the entire /messages endpoint down)."""
+# Item 3's "Transparente Quellenangabe": every native tool name maps to the source it belongs to,
+# so `execute_tool` below can prepend an unambiguous "Quelle: ..." header centrally -- one place
+# that can never be forgotten by an individual _execute_* function, rather than duplicating the
+# citation in each of them.
+_TOOL_NAME_TO_SOURCE_ID = {
+    NIGHTSCOUT_TOOL_NAME: "nightscout",
+    NIGHTSCOUT_TREATMENTS_TOOL_NAME: "nightscout",
+    NIGHTSCOUT_PROFILE_TOOL_NAME: "nightscout",
+    NIGHTSCOUT_DEVICESTATUS_TOOL_NAME: "nightscout",
+    FEELFIT_TOOL_NAME: "feelfit",
+    GOOGLE_HEALTH_TOOL_NAME: "google_health",
+    GOOGLE_HEALTH_SLEEP_TOOL_NAME: "google_health",
+    GOOGLE_HEALTH_STEPS_TOOL_NAME: "google_health",
+    GOOGLE_HEALTH_HEART_RATE_TOOL_NAME: "google_health",
+    GOOGLE_HEALTH_RESTING_HEART_RATE_TOOL_NAME: "google_health",
+    GOOGLE_HEALTH_HRV_TOOL_NAME: "google_health",
+    WITHINGS_TOOL_NAME: "withings",
+    DEXCOM_TOOL_NAME: "dexcom",
+    LIBRELINKUP_TOOL_NAME: "librelinkup",
+    GLOOKO_SUMMARY_TOOL_NAME: "glooko",
+    GLOOKO_TREND_TOOL_NAME: "glooko",
+    GLOOKO_GLUCOSE_TOOL_NAME: "glooko",
+    GLOOKO_CHART_SERIES_TOOL_NAME: "glooko",
+    GLOOKO_BOLUS_LOG_TOOL_NAME: "glooko",
+    GLOOKO_HOURLY_TRENDS_TOOL_NAME: "glooko",
+    GLOOKO_BASAL_DELIVERY_TOOL_NAME: "glooko",
+    GLOOKO_DAILY_INSULIN_TOOL_NAME: "glooko",
+    GLOOKO_SETTINGS_HISTORY_TOOL_NAME: "glooko",
+    GLOOKO_DEVICE_EVENTS_TOOL_NAME: "glooko",
+    GLOOKO_MEAL_WINDOW_TOOL_NAME: "glooko",
+}
+
+
+def _cite_source(result: str, citation: str) -> str:
+    """Prepends `citation` unless `result` already carries its own "Quelle:" header (e.g.
+    Withings, which builds a more detailed one itself) or is an error string (nothing to
+    attribute a source to)."""
+    if result.startswith("Quelle:") or result.startswith("Fehler"):
+        return result
+    return f"{citation}\n\n{result}"
+
+
+async def _dispatch_native(name: str, arguments: dict[str, Any], settings: dict) -> str | None:
+    """The native (non-MCP) tool dispatch chain -- returns None for a tool name it doesn't
+    recognize, so `execute_tool` below falls through to the MCP-server lookup."""
     if name == NIGHTSCOUT_TOOL_NAME:
         return await _execute_nightscout(arguments, settings)
+    if name == NIGHTSCOUT_TREATMENTS_TOOL_NAME:
+        return await _execute_nightscout_treatments(arguments, settings)
+    if name == NIGHTSCOUT_PROFILE_TOOL_NAME:
+        return await _execute_nightscout_profile(settings)
+    if name == NIGHTSCOUT_DEVICESTATUS_TOOL_NAME:
+        return await _execute_nightscout_devicestatus(settings)
     if name == FEELFIT_TOOL_NAME:
         return await _execute_feelfit(settings)
     if name == GOOGLE_HEALTH_TOOL_NAME:
@@ -505,6 +602,8 @@ async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp
         return await _execute_google_health_resting_heart_rate(arguments, settings)
     if name == GOOGLE_HEALTH_HRV_TOOL_NAME:
         return await _execute_google_health_hrv(arguments, settings)
+    if name == WITHINGS_TOOL_NAME:
+        return await _execute_withings(settings)
     if name == DEXCOM_TOOL_NAME:
         return await _execute_dexcom(settings)
     if name == LIBRELINKUP_TOOL_NAME:
@@ -531,6 +630,23 @@ async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp
         return await _execute_glooko_device_events(arguments, settings)
     if name == GLOOKO_MEAL_WINDOW_TOOL_NAME:
         return await _execute_glooko_meal_window(arguments, settings)
+    return None
+
+
+async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp_servers: list[dict]) -> str:
+    """Never raises -- a failed tool call (server down, network blip, ...) is fed back to the
+    model as an error-flavored tool result instead of crashing the whole chat request. The model
+    can then tell the user what happened instead of the request 500ing (observed live: a
+    transient MCP connection failure here previously took the entire /messages endpoint down).
+
+    Every result gets an explicit "Quelle: ..." header via `_cite_source` (item 3's "Transparente
+    Quellenangabe") before it's handed back -- native tools cite "{Anbieter} REST API", MCP tools
+    cite "{Servername} MCP", matching the two example phrasings from the request."""
+    native_result = await _dispatch_native(name, arguments, settings)
+    if native_result is not None:
+        source_id = _TOOL_NAME_TO_SOURCE_ID.get(name)
+        display_name = _NATIVE_SOURCE_NAMES.get(source_id, source_id) if source_id else name
+        return _cite_source(native_result, f"Quelle: {display_name} REST API")
     try:
         for server in mcp_servers:
             if not server.get("enabled"):
@@ -538,15 +654,18 @@ async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp
             tools = await _safe_list_tools(server)
             if any(t.name == name for t in tools):
                 resolved = await resolve_server_auth(server)
+                citation = f"Quelle: {server.get('name') or server['id']} MCP"
                 try:
-                    return await mcp_client.call_tool(resolved, name, arguments)
+                    result = await mcp_client.call_tool(resolved, name, arguments)
+                    return _cite_source(result, citation)
                 except Exception as exc:  # noqa: BLE001
                     if server.get("authMethod") != "OAUTH2" or not _is_auth_error(exc):
                         raise
                     # Same stale-cached-expiry case as _safe_list_tools -- force a refresh and
                     # retry the actual tool call once before surfacing the failure.
                     resolved = await resolve_server_auth(server, force_refresh=True)
-                    return await mcp_client.call_tool(resolved, name, arguments)
+                    result = await mcp_client.call_tool(resolved, name, arguments)
+                    return _cite_source(result, citation)
         return f"Fehler: Tool '{name}' wurde bei keinem aktiven Server gefunden."
     except Exception as exc:  # noqa: BLE001 -- see docstring
         return f"Fehler beim Aufruf von '{name}': {exc}"
@@ -569,6 +688,108 @@ async def _execute_nightscout(arguments: dict[str, Any], settings: dict) -> str:
         f"{time.strftime('%d.%m. %H:%M', time.localtime(e.date_millis / 1000))}: {e.sgv_mg_dl:.0f} mg/dL ({nightscout.trend_arrow_for(e.direction)})"
         for e in sorted(entries, key=lambda e: e.date_millis)
     ]
+    # Item 3's "Automatische Erkennung von Datenlücken" -- appended, never silently filled/
+    # estimated; compute_metrics/TIR/etc. downstream already only ever aggregate the entries
+    # actually present, so nothing else needs to change to honor "AUSSCHLIESSLICH aus den
+    # tatsächlich vorliegenden Datenpunkten".
+    gaps = nightscout.detect_gaps(entries, from_millis, to_millis)
+    if gaps:
+        lines.append("")
+        lines.extend(nightscout.format_gap_warning("Nightscout", gap) for gap in gaps)
+    return "\n".join(lines)
+
+
+async def _execute_nightscout_treatments(arguments: dict[str, Any], settings: dict) -> str:
+    now = int(time.time() * 1000)
+    from_millis = int(arguments.get("fromEpochMillis") or now - 24 * 60 * 60 * 1000)
+    to_millis = int(arguments.get("toEpochMillis") or now)
+    try:
+        treatments = await nightscout.fetch_treatments(
+            settings["nightscoutApiUrl"], settings["nightscoutApiAuthMethod"], settings["nightscoutApiSecret"],
+            from_millis, to_millis,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Nightscout-Behandlungsdaten: {exc}"
+    if not treatments:
+        return "Keine Behandlungs-Einträge (Bolus/Kohlenhydrate/Temp Basal/Geräte-Wechsel) im angefragten Zeitraum gefunden."
+    cage, sage = nightscout.split_cage_sage_events(treatments)
+    lines = []
+    for t in treatments:
+        date = time.strftime("%d.%m. %H:%M", time.localtime(t.date_millis / 1000))
+        parts = [t.event_type or "Ereignis"]
+        if t.insulin_units is not None:
+            parts.append(f"{t.insulin_units:.2f} IE Insulin")
+        if t.carbs_grams is not None:
+            parts.append(f"{t.carbs_grams:.0f} g Kohlenhydrate")
+        if t.temp_basal_rate is not None:
+            parts.append(f"Temp-Basal-Rate {t.temp_basal_rate:.2f} U/h")
+        if t.temp_basal_percent is not None:
+            parts.append(f"Temp-Basal {t.temp_basal_percent:.0f}%")
+        if t.duration_minutes is not None:
+            parts.append(f"{t.duration_minutes:.0f} min")
+        if t.notes:
+            parts.append(t.notes)
+        lines.append(f"{date}: {', '.join(parts)}")
+    lines.append("")
+    lines.append(f"Katheter-/Site-Wechsel (CAGE) im Zeitraum: {len(cage)}")
+    lines.append(f"Sensor-Wechsel (SAGE) im Zeitraum: {len(sage)}")
+    return "\n".join(lines)
+
+
+async def _execute_nightscout_profile(settings: dict) -> str:
+    try:
+        profile = await nightscout.fetch_active_profile(
+            settings["nightscoutApiUrl"], settings["nightscoutApiAuthMethod"], settings["nightscoutApiSecret"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf des Nightscout-Therapieprofils: {exc}"
+    if profile is None:
+        return "Kein Therapieprofil in Nightscout hinterlegt."
+
+    def format_segments(segments: list, unit: str) -> str:
+        if not segments:
+            return "  (keine Segmente hinterlegt)"
+        return "\n".join(f"  ab {s.time} Uhr: {s.value:.2f} {unit}" for s in segments)
+
+    lines = [
+        f"Profilname: {profile.name}",
+        f"DIA (Wirkdauer): {profile.dia_hours:.1f} h" if profile.dia_hours is not None else "DIA (Wirkdauer): nicht hinterlegt",
+        "",
+        "Basalratenprofil (U/h):",
+        format_segments(profile.basal_segments, "U/h"),
+        "",
+        f"Korrekturfaktor ISF ({profile.units}/IE):",
+        format_segments(profile.isf_segments, profile.units),
+        "",
+        "BE-/KE-Faktor ICR (g Kohlenhydrate/IE):",
+        format_segments(profile.icr_segments, "g/IE"),
+        "",
+        f"BZ-Zielwert untere Grenze ({profile.units}):",
+        format_segments(profile.target_low_segments, profile.units),
+        "",
+        f"BZ-Zielwert obere Grenze ({profile.units}):",
+        format_segments(profile.target_high_segments, profile.units),
+    ]
+    return "\n".join(lines)
+
+
+async def _execute_nightscout_devicestatus(settings: dict) -> str:
+    try:
+        status = await nightscout.fetch_latest_device_status(
+            settings["nightscoutApiUrl"], settings["nightscoutApiAuthMethod"], settings["nightscoutApiSecret"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf des Nightscout-Gerätestatus: {exc}"
+    if status is None:
+        return "Kein Geräte-Status (IOB/COB/Loop) in Nightscout gemeldet -- vermutlich kein Loop-/AndroidAPS-System angebunden."
+    date = time.strftime("%d.%m.%Y %H:%M", time.localtime(status.date_millis / 1000))
+    lines = [f"Stand: {date} Uhr"]
+    lines.append(f"IOB (Insulin on Board): {status.iob_units:.2f} IE" if status.iob_units is not None else "IOB (Insulin on Board): nicht gemeldet")
+    lines.append(f"COB (Carbs on Board): {status.cob_grams:.0f} g" if status.cob_grams is not None else "COB (Carbs on Board): nicht gemeldet")
+    lines.append(f"Loop-Status: {status.loop_status}" if status.loop_status else "Loop-Status: nicht gemeldet")
+    if status.predicted_bg_mgdl:
+        preview = ", ".join(f"{v:.0f}" for v in status.predicted_bg_mgdl[:12])
+        lines.append(f"Vorhergesagte BZ-Werte (mg/dL, nächste Punkte): {preview}")
     return "\n".join(lines)
 
 
@@ -737,6 +958,44 @@ async def _execute_google_health_hrv(arguments: dict[str, Any], settings: dict) 
             lines.append(f"{date}: HRV {r.average_hrv_milliseconds:.1f} ms")
         else:
             lines.append(f"{date}: HRV-Wert ohne Durchschnitt gemeldet")
+    return "\n".join(lines)
+
+
+def _save_withings_tokens(access_token: str, refresh_token: str, expires_at: int) -> None:
+    db.save_settings({
+        "withingsAccessToken": access_token,
+        "withingsRefreshToken": refresh_token,
+        "withingsExpiresAt": expires_at,
+    })
+
+
+def _format_withings_trend(label: str, trend: "withings.Trend | None", unit: str) -> str:
+    if trend is None:
+        return f"{label}-Trend: nicht genug Messungen im Zeitraum für einen Trend"
+    direction_label = {"UP": "steigend", "DOWN": "fallend", "STABLE": "stabil"}[trend.direction]
+    return f"{label}-Trend (3 Monate): {trend.arrow} {direction_label} ({trend.change:+.1f} {unit} zwischen erster und letzter Messung)"
+
+
+async def _execute_withings(settings: dict) -> str:
+    try:
+        access_token = await withings.get_valid_access_token(settings, _save_withings_tokens)
+        result = await withings.fetch_weight_and_fat_trend(access_token)
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Withings-Daten: {exc}"
+    if not result.readings:
+        return "Keine Withings-Messungen in den letzten 3 Monaten gefunden."
+    lines = ["Quelle: Withings REST API (direkte API, letzte 3 Monate)", ""]
+    for r in result.readings:
+        date = time.strftime("%d.%m.%Y %H:%M", time.localtime(r.date_millis / 1000))
+        parts = [date]
+        if r.weight_kg is not None:
+            parts.append(f"Gewicht {r.weight_kg:.1f} kg")
+        if r.fat_ratio_percent is not None:
+            parts.append(f"Körperfett {r.fat_ratio_percent:.1f}%")
+        lines.append(f"{parts[0]}: {', '.join(parts[1:])}" if len(parts) > 1 else parts[0])
+    lines.append("")
+    lines.append(_format_withings_trend("Gewicht", result.weight_trend, "kg"))
+    lines.append(_format_withings_trend("Körperfett", result.fat_trend, "%"))
     return "\n".join(lines)
 
 

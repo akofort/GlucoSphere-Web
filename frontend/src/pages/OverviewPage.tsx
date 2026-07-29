@@ -450,9 +450,36 @@ export default function OverviewPage() {
                     <td>{t.overviewGmi}</td>
                     <td>{dashboard.metrics.estimatedHbA1cPercent.toFixed(1)}%</td>
                   </tr>
+                  {dashboard.iobUnits != null && (
+                    <tr>
+                      <td>{t.overviewIob}</td>
+                      <td>{dashboard.iobUnits.toFixed(2)} IE</td>
+                    </tr>
+                  )}
+                  {dashboard.cobGrams != null && (
+                    <tr>
+                      <td>{t.overviewCob}</td>
+                      <td>{dashboard.cobGrams.toFixed(0)} g</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
+              {dashboard.loopStatus && (
+                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 8 }}>
+                  {t.overviewLoopStatus}: {dashboard.loopStatus}
+                </p>
+              )}
             </div>
+
+            {dashboard.dataGaps && dashboard.dataGaps.length > 0 && (
+              <div className="test-result error" style={{ marginBottom: 16 }}>
+                {dashboard.dataGaps.map((gap, i) => (
+                  <p key={i} style={{ margin: i === 0 ? 0 : "8px 0 0" }}>
+                    {gap.warningText}
+                  </p>
+                ))}
+              </div>
+            )}
 
             {dashboard.summaryText && (
               <div className="card">

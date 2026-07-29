@@ -63,6 +63,10 @@ export interface Settings {
   googleHealthClientSecret: string;
   googleHealthEnabled: boolean;
   googleHealthRefreshToken: string;
+  withingsClientId: string;
+  withingsClientSecret: string;
+  withingsEnabled: boolean;
+  withingsRefreshToken: string;
   dexcomUsername: string;
   dexcomPassword: string;
   dexcomRegion: "US" | "OUS";
@@ -80,6 +84,7 @@ export interface Settings {
   feelfitCategory: string;
   googleHealthCategory: string;
   glookoCategory: string;
+  withingsCategory: string;
 }
 
 export interface SourceHealth {
@@ -157,6 +162,13 @@ export interface DashboardSource {
   isRealtime: boolean;
 }
 
+export interface DashboardDataGap {
+  sourceName: string;
+  startMillis: number;
+  endMillis: number;
+  warningText: string;
+}
+
 export interface Dashboard {
   configured: boolean;
   excluded?: boolean;
@@ -177,6 +189,13 @@ export interface Dashboard {
   combinedSourcesNote?: string | null;
   summaryText?: string | null;
   tips?: string[];
+  /** IOB (Insulin on Board, IE) -- null when no Nightscout Loop/AndroidAPS devicestatus is
+   * reporting, not an error. */
+  iobUnits?: number | null;
+  /** COB (Carbs on Board, g) -- same null-means-not-reporting convention as iobUnits. */
+  cobGrams?: number | null;
+  loopStatus?: string | null;
+  dataGaps?: DashboardDataGap[];
 }
 
 export interface ChatSession {
@@ -294,6 +313,13 @@ export const api = {
     }),
   testGoogleHealth: () =>
     request<{ success: boolean; message: string }>("/google-health/test-connection", { method: "POST" }),
+  testWithings: () =>
+    request<{ success: boolean; message: string }>("/withings/test-connection", { method: "POST" }),
+  withingsOAuthAuthorize: (redirectUri: string) =>
+    request<{ authorizeUrl: string }>("/withings/oauth/authorize", {
+      method: "POST",
+      body: JSON.stringify({ redirectUri }),
+    }),
   testDexcom: (body: { username: string; password: string; region: string }) =>
     request<{ success: boolean; message: string }>("/dexcom/test-connection", {
       method: "POST",

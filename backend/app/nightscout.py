@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import httpx
@@ -196,3 +197,291 @@ def compute_status(m: DashboardMetrics) -> StatusEvaluation:
         return StatusEvaluation("YELLOW", f"Status GELB aufgrund {' und '.join(yellow_reasons)}{suffix}.")
 
     return StatusEvaluation("GREEN", "Status GRÜN -- alle Werte im empfohlenen Zielbereich.")
+
+
+# ---------------------------------------------------------------------------
+# Data-gap detection (item 3, "Automatische Erkennung von Datenlücken")
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DataGap:
+    start_millis: int
+    end_millis: int
+
+
+_DEFAULT_GAP_THRESHOLD_MINUTES = 60
+
+
+def detect_gaps(
+    entries: list[NightscoutEntry], from_millis: int, to_millis: int,
+    gap_threshold_minutes: int = _DEFAULT_GAP_THRESHOLD_MINUTES,
+) -> list[DataGap]:
+    """Any stretch of the requested [from_millis, to_millis] window with no CGM reading at all,
+    STRICTLY LONGER than gap_threshold_minutes (item 3's "fehlende CGM-Werte über MEHR ALS 1
+    Stunde" -- a gap of exactly 60 minutes does not itself qualify) -- checked at the START of the
+    window (from_millis to the first entry), BETWEEN every pair of consecutive entries, and the
+    END of the window (last entry to to_millis), so a sensor that's currently offline is caught
+    too, not just a gap strictly between two historical readings. TIR/avg/%CV etc. never need to
+    "fill" these gaps -- compute_metrics already only ever aggregates the entries actually
+    present, so excluding a gap from the statistics is already the default behavior, not something
+    this function has to enforce itself."""
+    threshold_millis = gap_threshold_minutes * 60 * 1000
+    if not entries:
+        return [DataGap(from_millis, to_millis)] if to_millis - from_millis > threshold_millis else []
+    ordered = sorted(entries, key=lambda e: e.date_millis)
+    gaps: list[DataGap] = []
+    if ordered[0].date_millis - from_millis > threshold_millis:
+        gaps.append(DataGap(from_millis, ordered[0].date_millis))
+    for prev, curr in zip(ordered, ordered[1:]):
+        if curr.date_millis - prev.date_millis > threshold_millis:
+            gaps.append(DataGap(prev.date_millis, curr.date_millis))
+    if to_millis - ordered[-1].date_millis > threshold_millis:
+        gaps.append(DataGap(ordered[-1].date_millis, to_millis))
+    return gaps
+
+
+def format_gap_warning(source_name: str, gap: DataGap) -> str:
+    """Item 3's exact required warning wording -- one instance per detected gap. Both the chat
+    tool output (tools.py) and the Übersicht/report path (main.py) call this so the wording never
+    drifts between the two surfaces."""
+    start = time.strftime("%d.%m.%Y %H:%M", time.localtime(gap.start_millis / 1000))
+    end = time.strftime("%d.%m.%Y %H:%M", time.localtime(gap.end_millis / 1000))
+    return (
+        f"⚠️ Hinweis: In der Quelle {source_name} fehlen Daten im Zeitraum von {start} bis {end}. "
+        "Die Auswertung berücksichtigt ausschließlich die verfügbaren Datenpunkte."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Treatments (item 2: Bolus, Carbs/BE, Temp Basals, CAGE/SAGE)
+# ---------------------------------------------------------------------------
+
+def _iso(millis: int) -> str:
+    return datetime.fromtimestamp(millis / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _parse_iso_millis(text: str | None) -> int | None:
+    if not text:
+        return None
+    cleaned = text.strip()
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1000)
+
+
+@dataclass
+class Treatment:
+    date_millis: int
+    event_type: str
+    insulin_units: float | None = None
+    carbs_grams: float | None = None
+    # Temp basal duration/rate -- only meaningful for eventType == "Temp Basal".
+    duration_minutes: float | None = None
+    temp_basal_rate: float | None = None  # absolute U/h, if reported
+    temp_basal_percent: float | None = None  # percent-of-profile-basal, if reported instead
+    notes: str = ""
+
+
+# Nightscout has no single canonical "site/sensor change" eventType across all uploader apps --
+# these are the commonly observed spellings (AndroidAPS, xDrip+, care portal manual entries).
+_CAGE_EVENT_TYPES = {"Site Change", "Cannula Change", "Insulin Cartridge Change"}
+_SAGE_EVENT_TYPES = {"Sensor Change", "Sensor Start"}
+
+
+async def fetch_treatments(base_url: str, auth_method: str, token: str, from_millis: int, to_millis: int) -> list[Treatment]:
+    url = _join_url(base_url, "/api/v1/treatments.json")
+    header = _auth_header(auth_method, token)
+    headers = dict([header]) if header else {}
+    params = {
+        **_base_query_params(base_url),
+        "find[created_at][$gte]": _iso(from_millis),
+        "find[created_at][$lte]": _iso(to_millis),
+        "count": 10_000,
+    }
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.get(url, params=params, headers=headers)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Nightscout-API-Fehler: HTTP {resp.status_code}")
+    raw = resp.json()
+    treatments: list[Treatment] = []
+    for item in raw if isinstance(raw, list) else []:
+        date_millis = item.get("mills") or _parse_iso_millis(item.get("created_at") or item.get("timestamp"))
+        if date_millis is None:
+            continue
+        treatments.append(Treatment(
+            date_millis=int(date_millis),
+            event_type=item.get("eventType") or "",
+            insulin_units=_as_float_or_none(item.get("insulin")),
+            carbs_grams=_as_float_or_none(item.get("carbs")),
+            duration_minutes=_as_float_or_none(item.get("duration")),
+            temp_basal_rate=_as_float_or_none(item.get("absolute") if item.get("absolute") is not None else item.get("rate")),
+            temp_basal_percent=_as_float_or_none(item.get("percent")),
+            notes=item.get("notes") or "",
+        ))
+    treatments.sort(key=lambda t: t.date_millis)
+    return treatments
+
+
+def _as_float_or_none(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def split_cage_sage_events(treatments: list[Treatment]) -> tuple[list[Treatment], list[Treatment]]:
+    """(cannula/site changes, sensor changes) -- the two device-event subsets item 2 calls out
+    explicitly ("Katheter- (CAGE) und Sensor-Wechseln (SAGE)"), pulled out of the same treatments
+    list rather than a separate API call (Nightscout reports both as ordinary treatment entries)."""
+    cage = [t for t in treatments if t.event_type in _CAGE_EVENT_TYPES]
+    sage = [t for t in treatments if t.event_type in _SAGE_EVENT_TYPES]
+    return cage, sage
+
+
+# ---------------------------------------------------------------------------
+# Profile (item 2: Basalprofil, ISF, ICR, BZ-Zielwerte, DIA)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ProfileSegment:
+    time: str  # "HH:MM", the segment's start-of-day clock time per Nightscout's own profile shape
+    value: float
+
+
+@dataclass
+class TherapyProfile:
+    name: str
+    units: str  # "mg/dl" | "mmol"
+    dia_hours: float | None
+    basal_segments: list[ProfileSegment] = field(default_factory=list)
+    isf_segments: list[ProfileSegment] = field(default_factory=list)  # "sens" in Nightscout's own schema
+    icr_segments: list[ProfileSegment] = field(default_factory=list)  # "carbratio"
+    target_low_segments: list[ProfileSegment] = field(default_factory=list)
+    target_high_segments: list[ProfileSegment] = field(default_factory=list)
+
+
+def _segments(profile_doc: dict, key: str) -> list[ProfileSegment]:
+    raw = profile_doc.get(key)
+    if not isinstance(raw, list):
+        return []
+    segments = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        value = _as_float_or_none(item.get("value"))
+        if value is None:
+            continue
+        segments.append(ProfileSegment(str(item.get("time") or ""), value))
+    return segments
+
+
+async def fetch_active_profile(base_url: str, auth_method: str, token: str) -> TherapyProfile | None:
+    """Nightscout's `/api/v1/profile.json` returns a list of profile documents, newest first --
+    this reads only the newest one and, within it, the profile named by `defaultProfile` (the one
+    actually driving the pump/loop right now), falling back to the first profile in `store` if
+    `defaultProfile` is missing or stale. Returns None if no profile document exists at all."""
+    url = _join_url(base_url, "/api/v1/profile.json")
+    header = _auth_header(auth_method, token)
+    headers = dict([header]) if header else {}
+    params = {**_base_query_params(base_url), "count": 1}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.get(url, params=params, headers=headers)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Nightscout-API-Fehler: HTTP {resp.status_code}")
+    raw = resp.json()
+    if not isinstance(raw, list) or not raw:
+        return None
+    doc = raw[0]
+    store = doc.get("store") if isinstance(doc.get("store"), dict) else {}
+    default_name = doc.get("defaultProfile")
+    profile_doc = store.get(default_name) if default_name in store else (next(iter(store.values()), None) if store else None)
+    if not isinstance(profile_doc, dict):
+        return None
+    return TherapyProfile(
+        name=default_name or next(iter(store.keys()), ""),
+        units=profile_doc.get("units") or "mg/dl",
+        dia_hours=_as_float_or_none(profile_doc.get("dia")),
+        basal_segments=_segments(profile_doc, "basal"),
+        isf_segments=_segments(profile_doc, "sens"),
+        icr_segments=_segments(profile_doc, "carbratio"),
+        target_low_segments=_segments(profile_doc, "target_low"),
+        target_high_segments=_segments(profile_doc, "target_high"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Device status (item 2: IOB, COB, Loop-Status, Vorhersagen)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DeviceStatusSnapshot:
+    date_millis: int
+    iob_units: float | None
+    cob_grams: float | None
+    loop_status: str | None
+    predicted_bg_mgdl: list[float] | None
+
+
+def _extract_device_status(doc: dict) -> DeviceStatusSnapshot | None:
+    date_millis = _parse_iso_millis(doc.get("created_at")) or doc.get("mills")
+    if date_millis is None:
+        return None
+    # AndroidAPS/OpenAPS report under "openaps"; iOS Loop reports under "loop" -- different
+    # uploader apps, different (undocumented, informally-conventioned) shapes for the same idea.
+    openaps = doc.get("openaps") if isinstance(doc.get("openaps"), dict) else None
+    loop = doc.get("loop") if isinstance(doc.get("loop"), dict) else None
+    iob_units = cob_grams = None
+    loop_status: str | None = None
+    predicted: list[float] | None = None
+    if openaps:
+        iob_field = openaps.get("iob")
+        iob_doc = iob_field[0] if isinstance(iob_field, list) and iob_field else iob_field
+        if isinstance(iob_doc, dict):
+            iob_units = _as_float_or_none(iob_doc.get("iob"))
+        suggested = openaps.get("suggested") if isinstance(openaps.get("suggested"), dict) else {}
+        cob_grams = _as_float_or_none(suggested.get("COB"))
+        loop_status = suggested.get("reason")
+        pred_bgs = suggested.get("predBGs") if isinstance(suggested.get("predBGs"), dict) else {}
+        for key in ("IOB", "COB", "UAM", "ZT"):
+            if isinstance(pred_bgs.get(key), list):
+                predicted = [float(v) for v in pred_bgs[key]]
+                break
+    elif loop:
+        iob_doc = loop.get("iob") if isinstance(loop.get("iob"), dict) else {}
+        iob_units = _as_float_or_none(iob_doc.get("iob"))
+        cob_doc = loop.get("cob") if isinstance(loop.get("cob"), dict) else {}
+        cob_grams = _as_float_or_none(cob_doc.get("cob"))
+        enacted = loop.get("enacted") if isinstance(loop.get("enacted"), dict) else {}
+        loop_status = enacted.get("reason") or loop.get("name")
+        predicted_doc = loop.get("predicted") if isinstance(loop.get("predicted"), dict) else {}
+        if isinstance(predicted_doc.get("values"), list):
+            predicted = [float(v) for v in predicted_doc["values"]]
+    return DeviceStatusSnapshot(int(date_millis), iob_units, cob_grams, loop_status, predicted)
+
+
+async def fetch_latest_device_status(base_url: str, auth_method: str, token: str) -> DeviceStatusSnapshot | None:
+    """Most recent devicestatus document only -- IOB/COB/Loop-Status are point-in-time snapshots
+    (see item 2), not a time series, so there is never a reason to fetch more than the latest
+    one. Returns None if no uploader has ever posted a devicestatus document, or the newest one
+    reports neither an "openaps" nor a "loop" section (an uploader app this integration doesn't
+    yet recognize)."""
+    url = _join_url(base_url, "/api/v1/devicestatus.json")
+    header = _auth_header(auth_method, token)
+    headers = dict([header]) if header else {}
+    params = {**_base_query_params(base_url), "count": 1}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.get(url, params=params, headers=headers)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Nightscout-API-Fehler: HTTP {resp.status_code}")
+    raw = resp.json()
+    if not isinstance(raw, list) or not raw:
+        return None
+    return _extract_device_status(raw[0])

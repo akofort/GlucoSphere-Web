@@ -38,6 +38,9 @@ export interface Strings {
   overviewVariability: string;
   overviewAvgGlucose: string;
   overviewGmi: string;
+  overviewIob: string;
+  overviewCob: string;
+  overviewLoopStatus: string;
   overviewSummaryTitle: string;
   overviewReadAloud: string;
   overviewSourcesLabel: string;
@@ -145,6 +148,16 @@ export interface Strings {
   dataSourcesGoogleHealthLoginAgain: string;
   dataSourcesGoogleHealthLoggedIn: string;
   dataSourcesGoogleHealthNotLoggedIn: string;
+  dataSourcesWithingsTitle: string;
+  dataSourcesWithingsHint: string;
+  dataSourcesWithingsClientId: string;
+  dataSourcesWithingsClientSecret: string;
+  dataSourcesWithingsLogin: string;
+  dataSourcesWithingsLoginAgain: string;
+  dataSourcesWithingsLoggedIn: string;
+  dataSourcesWithingsNotLoggedIn: string;
+  dsRestApiHint: string;
+  dsRestApiBadge: string;
   dataSourcesDexcomTitle: string;
   dataSourcesDexcomHint: string;
   dataSourcesDexcomUsername: string;
@@ -356,6 +369,9 @@ const de: Strings = {
   overviewVariability: "Variabilität (%CV)",
   overviewAvgGlucose: "Ø Glukose",
   overviewGmi: "Geschätzter HbA1c (GMI)",
+  overviewIob: "IOB (Insulin on Board)",
+  overviewCob: "COB (Carbs on Board)",
+  overviewLoopStatus: "Loop-Status",
   overviewSummaryTitle: "Zusammenfassung",
   overviewReadAloud: "Vorlesen",
   overviewSourcesLabel: "Datenquellen",
@@ -479,6 +495,16 @@ const de: Strings = {
   dataSourcesGoogleHealthLoginAgain: "Erneut anmelden",
   dataSourcesGoogleHealthLoggedIn: "Angemeldet",
   dataSourcesGoogleHealthNotLoggedIn: "Nicht angemeldet",
+  dataSourcesWithingsTitle: "Withings API",
+  dataSourcesWithingsHint: "Gewicht und Körperfettanteil der letzten 3 Monate direkt über die offizielle Withings-REST-API, inkl. Trendrichtung je Kennzahl. Erfordert eine selbst registrierte OAuth2-App im Withings Developer Portal mit der unten gezeigten Redirect-URI.",
+  dataSourcesWithingsClientId: "Withings-Client-ID",
+  dataSourcesWithingsClientSecret: "Withings-Client-Secret",
+  dataSourcesWithingsLogin: "Login mit Withings",
+  dataSourcesWithingsLoginAgain: "Erneut anmelden",
+  dataSourcesWithingsLoggedIn: "Angemeldet",
+  dataSourcesWithingsNotLoggedIn: "Nicht angemeldet",
+  dsRestApiHint: "Direkt-API (i.d.R. schneller)",
+  dsRestApiBadge: "Direkt-API",
   dataSourcesDexcomTitle: "Dexcom Share",
   dataSourcesDexcomHint: "Direkter Zugriff auf aktuelle CGM-Werte über die Dexcom-Share-API (dieselbe Cloud-API wie die Dexcom-Follow-App) -- liefert nur die letzten bis zu 24 Stunden, keine ältere Historie. Zugangsdaten des Dexcom-Kontos eintragen (nicht das Follower-Konto).",
   dataSourcesDexcomUsername: "Dexcom-Benutzername",
@@ -703,6 +729,9 @@ const en: Strings = {
   overviewVariability: "Variability (%CV)",
   overviewAvgGlucose: "Avg. glucose",
   overviewGmi: "Estimated HbA1c (GMI)",
+  overviewIob: "IOB (Insulin on Board)",
+  overviewCob: "COB (Carbs on Board)",
+  overviewLoopStatus: "Loop status",
   overviewSummaryTitle: "Summary",
   overviewReadAloud: "Read aloud",
   overviewSourcesLabel: "Data sources",
@@ -826,6 +855,16 @@ const en: Strings = {
   dataSourcesGoogleHealthLoginAgain: "Log in again",
   dataSourcesGoogleHealthLoggedIn: "Logged in",
   dataSourcesGoogleHealthNotLoggedIn: "Not logged in",
+  dataSourcesWithingsTitle: "Withings API",
+  dataSourcesWithingsHint: "Weight and body-fat percentage from the last 3 months directly via the official Withings REST API, including a trend direction per metric. Requires your own OAuth2 app registered in the Withings Developer Portal, using the redirect URI shown below.",
+  dataSourcesWithingsClientId: "Withings client ID",
+  dataSourcesWithingsClientSecret: "Withings client secret",
+  dataSourcesWithingsLogin: "Log in with Withings",
+  dataSourcesWithingsLoginAgain: "Log in again",
+  dataSourcesWithingsLoggedIn: "Logged in",
+  dataSourcesWithingsNotLoggedIn: "Not logged in",
+  dsRestApiHint: "Direct API (usually faster)",
+  dsRestApiBadge: "Direct API",
   dataSourcesDexcomTitle: "Dexcom Share",
   dataSourcesDexcomHint: "Direct access to current CGM readings via the Dexcom Share API (the same cloud API used by the Dexcom Follow app) -- only returns up to the last 24 hours, no older history. Enter the Dexcom account's own credentials (not a follower account).",
   dataSourcesDexcomUsername: "Dexcom username",
