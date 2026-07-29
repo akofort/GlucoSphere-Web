@@ -36,7 +36,16 @@ _MEASTYPE_FAT_RATIO = 6
 
 
 class WithingsError(RuntimeError):
-    pass
+    """`status_code` is Withings' own app-level `status` field from the JSON body (NOT the HTTP
+    status -- Withings returns HTTP 200 even for an API-level error like an invalid token), set
+    wherever that field indicates failure. Lets callers retry-once-with-forced-refresh specifically
+    on a 401 (see get_valid_access_token's `force_refresh` and this module's docstring: Withings
+    can invalidate an access token well before its own reported `expires_in` elapses -- confirmed
+    live, a token still ~3h from its cached expiry was already rejected as invalid)."""
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def pkce_pair() -> tuple[str, str]:
@@ -109,13 +118,19 @@ async def refresh_access_token(client_id: str, client_secret: str, refresh_token
 
 async def get_valid_access_token(
     settings: dict[str, Any], save_tokens: Callable[[str, str, int], Awaitable[None] | None],
+    force_refresh: bool = False,
 ) -> str:
     """`save_tokens(access_token, refresh_token, expires_at)` persists a refreshed token back to
     settings -- passed in rather than importing db directly, same storage-agnostic shape as
-    google_health.py's get_valid_access_token."""
+    google_health.py's get_valid_access_token.
+
+    `force_refresh=True` bypasses the cached-expiry check entirely -- callers should retry once
+    with this after any 401 (WithingsError.status_code == 401) from an actual API call, since
+    Withings can invalidate a token well before its own reported expiry (see WithingsError's doc
+    comment)."""
     access_token = settings.get("withingsAccessToken") or ""
     expires_at = settings.get("withingsExpiresAt") or 0
-    if access_token and time.time() < expires_at - 60:
+    if not force_refresh and access_token and time.time() < expires_at - 60:
         return access_token
     refresh_token = settings.get("withingsRefreshToken") or ""
     if not refresh_token:
@@ -155,8 +170,10 @@ async def fetch_measurements(access_token: str, from_millis: int, to_millis: int
     if resp.status_code >= 400:
         raise WithingsError(f"Withings-API-Fehler: HTTP {resp.status_code}: {resp.text[:300]}")
     data = resp.json()
-    if data.get("status") != 0:
-        raise WithingsError(f"Withings-API-Fehler: status {data.get('status')}: {data.get('error', '')}")
+    body_status = data.get("status")
+    if body_status != 0:
+        status_code = body_status if isinstance(body_status, int) else None
+        raise WithingsError(f"Withings-API-Fehler: status {body_status}: {data.get('error', '')}", status_code=status_code)
     groups = (data.get("body") or {}).get("measuregrps") or []
     readings: list[BodyMeasurement] = []
     for grp in groups:

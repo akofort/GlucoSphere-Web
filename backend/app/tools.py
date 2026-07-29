@@ -979,7 +979,16 @@ def _format_withings_trend(label: str, trend: "withings.Trend | None", unit: str
 async def _execute_withings(settings: dict) -> str:
     try:
         access_token = await withings.get_valid_access_token(settings, _save_withings_tokens)
-        result = await withings.fetch_weight_and_fat_trend(access_token)
+        try:
+            result = await withings.fetch_weight_and_fat_trend(access_token)
+        except withings.WithingsError as exc:
+            if exc.status_code != 401:
+                raise
+            # The cached token looked valid (expiry not yet reached) but Withings rejected it
+            # anyway -- force a real refresh and retry once before giving up (see
+            # WithingsError's doc comment; confirmed live).
+            access_token = await withings.get_valid_access_token(settings, _save_withings_tokens, force_refresh=True)
+            result = await withings.fetch_weight_and_fat_trend(access_token)
     except Exception as exc:  # noqa: BLE001
         return f"Fehler beim Abruf der Withings-Daten: {exc}"
     if not result.readings:

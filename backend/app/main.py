@@ -542,10 +542,18 @@ async def withings_oauth_callback(code: str | None = None, state: str | None = N
 
 
 async def _check_withings(settings: dict) -> tuple[bool, str]:
+    now = int(time.time() * 1000)
     try:
         access_token = await withings.get_valid_access_token(settings, _save_withings_tokens)
-        now = int(time.time() * 1000)
-        readings = await withings.fetch_measurements(access_token, now - 30 * 24 * 60 * 60 * 1000, now)
+        try:
+            readings = await withings.fetch_measurements(access_token, now - 30 * 24 * 60 * 60 * 1000, now)
+        except withings.WithingsError as exc:
+            if exc.status_code != 401:
+                raise
+            # Same stale-cached-expiry case as tools.py's _execute_withings -- force a refresh
+            # and retry once before surfacing the failure.
+            access_token = await withings.get_valid_access_token(settings, _save_withings_tokens, force_refresh=True)
+            readings = await withings.fetch_measurements(access_token, now - 30 * 24 * 60 * 60 * 1000, now)
         return True, f"Verbindung erfolgreich -- {len(readings)} Messungen in den letzten 30 Tagen gefunden."
     except withings.WithingsError as exc:
         return False, str(exc)
