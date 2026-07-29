@@ -6,6 +6,7 @@ direct API as "just another server" from the rest of the app's point of view.
 """
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
@@ -21,7 +22,19 @@ GOOGLE_HEALTH_RESTING_HEART_RATE_TOOL_NAME = "get_google_health_resting_heart_ra
 GOOGLE_HEALTH_HRV_TOOL_NAME = "get_google_health_hrv"
 DEXCOM_TOOL_NAME = "get_dexcom_glucose_entries"
 LIBRELINKUP_TOOL_NAME = "get_librelinkup_glucose_entries"
-GLOOKO_TOOL_NAME = "get_insulin_pump_data"
+# Insulin pump ("Glooko") tools -- names match the reference implementation
+# (rilhia/omni-endo-ai-mcp) this was ported from, one tool per distinct analysis.
+GLOOKO_SUMMARY_TOOL_NAME = "get_diabetes_summary"
+GLOOKO_TREND_TOOL_NAME = "get_trend"
+GLOOKO_GLUCOSE_TOOL_NAME = "get_glucose"
+GLOOKO_CHART_SERIES_TOOL_NAME = "get_chart_series"
+GLOOKO_BOLUS_LOG_TOOL_NAME = "get_enriched_bolus_log"
+GLOOKO_HOURLY_TRENDS_TOOL_NAME = "get_hourly_trends"
+GLOOKO_BASAL_DELIVERY_TOOL_NAME = "get_basal_delivery"
+GLOOKO_DAILY_INSULIN_TOOL_NAME = "get_daily_insulin"
+GLOOKO_SETTINGS_HISTORY_TOOL_NAME = "get_settings_history"
+GLOOKO_DEVICE_EVENTS_TOOL_NAME = "get_device_events"
+GLOOKO_MEAL_WINDOW_TOOL_NAME = "get_meal_window_analysis"
 
 _NIGHTSCOUT_SCHEMA = {
     "type": "object",
@@ -41,6 +54,82 @@ _GOOGLE_HEALTH_SCHEMA = {
         "toEpochMillis": {"type": "integer", "description": "Ende des Zeitraums als Unix-Zeitstempel in Millisekunden"},
     },
     "required": ["fromEpochMillis", "toEpochMillis"],
+}
+
+_GLOOKO_WINDOW_PROPS = {
+    "fromEpochMillis": {"type": "integer", "description": "Start des Zeitraums als Unix-Zeitstempel in Millisekunden"},
+    "toEpochMillis": {"type": "integer", "description": "Ende des Zeitraums als Unix-Zeitstempel in Millisekunden"},
+}
+_GLOOKO_WINDOW_SCHEMA_REF = {
+    "type": "object", "properties": _GLOOKO_WINDOW_PROPS, "required": ["fromEpochMillis", "toEpochMillis"],
+}
+_GLOOKO_THRESHOLD_PROPS = {
+    "lowerMgDl": {"type": "number", "description": "Optional. Untere (Hypo-)Grenze in mg/dL für Time-in-Range-Berechnungen. Standard: 70."},
+    "upperMgDl": {"type": "number", "description": "Optional. Obere (Hyper-)Grenze in mg/dL für Time-in-Range-Berechnungen. Standard: 180."},
+}
+_GLOOKO_SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {**_GLOOKO_WINDOW_PROPS, **_GLOOKO_THRESHOLD_PROPS},
+    "required": ["fromEpochMillis", "toEpochMillis"],
+}
+_GLOOKO_TREND_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **_GLOOKO_WINDOW_PROPS,
+        "mode": {"type": "string", "enum": ["calendar", "fixed"], "description": "Optional (Standard: calendar). \"calendar\" bucketet nach echten Kalendereinheiten (Tag/Woche/Monat/Quartal), \"fixed\" nach gleich langen Abschnitten ab fromEpochMillis."},
+        "granularity": {"type": "string", "enum": ["day", "week", "month", "quarter"], "description": "Optional (Standard: month). Bucket-Größe bei mode=calendar."},
+        "fixedSizeDays": {"type": "integer", "description": "Optional (Standard: 7). Länge jedes Buckets in Tagen bei mode=fixed."},
+        **_GLOOKO_THRESHOLD_PROPS,
+    },
+    "required": ["fromEpochMillis", "toEpochMillis"],
+}
+_GLOOKO_GLUCOSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **_GLOOKO_WINDOW_PROPS,
+        "band": {"type": "string", "enum": ["low", "high", "target", "all"], "description": "Optional (Standard: all). Welche Messwerte zurückgegeben werden: \"low\" (unter der unteren Grenze, Hypo), \"high\" (über der oberen Grenze, Hyper), \"target\" (im Zielbereich), \"all\" (alle, jeweils mit Bereichs-Tag)."},
+        **_GLOOKO_THRESHOLD_PROPS,
+    },
+    "required": ["fromEpochMillis", "toEpochMillis"],
+}
+_GLOOKO_CHART_SERIES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **_GLOOKO_WINDOW_PROPS,
+        "maxPoints": {"type": "integer", "description": "Optional (Standard: 250, Bereich 20-1000). Ziel-Anzahl der Punkte für ein Diagramm -- deutlich günstiger als get_glucose für breite Zeiträume, da nicht mehr Punkte zurückgegeben werden als ein Chart ohnehin darstellen kann."},
+    },
+    "required": ["fromEpochMillis", "toEpochMillis"],
+}
+_GLOOKO_BOLUS_LOG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **_GLOOKO_WINDOW_PROPS,
+        "classes": {
+            "type": "array", "items": {"type": "string", "enum": ["Meal Bolus", "Manual Correction Bolus", "System Correction Bolus", "Meal With Correction Bolus"]},
+            "description": "Optional. Filter auf bestimmte Bolus-Klassen, z. B. um nur Korrekturboli zu sehen. Weglassen für alle.",
+        },
+    },
+    "required": ["fromEpochMillis", "toEpochMillis"],
+}
+_GLOOKO_HOURLY_SCHEMA = {
+    "type": "object",
+    "properties": {**_GLOOKO_WINDOW_PROPS, **_GLOOKO_THRESHOLD_PROPS},
+    "required": ["fromEpochMillis", "toEpochMillis"],
+}
+_GLOOKO_BASAL_DELIVERY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **_GLOOKO_WINDOW_PROPS,
+        "includeIntervals": {"type": "boolean", "description": "Optional (Standard: true). Ob die volle Intervall-Zeitleiste enthalten sein soll, oder nur die Zusammenfassung pro Zustand (deutlich kleiner bei langen Zeiträumen)."},
+    },
+    "required": ["fromEpochMillis", "toEpochMillis"],
+}
+_GLOOKO_MEAL_WINDOW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "eventEpochMillis": {"type": "integer", "description": "Unix-Zeitstempel (Millisekunden) des Mahlzeiten-/Bolus-Ereignisses. Fenster ist automatisch 30 Minuten davor bis 3 Stunden danach -- z. B. den Zeitpunkt vorher mit get_enriched_bolus_log ermitteln."},
+    },
+    "required": ["eventEpochMillis"],
 }
 
 
@@ -148,16 +237,105 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
             "_realtime": True,
         })
     if settings.get("glookoUsername") and settings.get("glookoEnabled", True):
+        _glooko_note = (
+            " Insulinpumpen-Daten sind über die Kathetereinheit/Pumpen-App zeitverzögert -- ZEITVERZÖGERTE "
+            "QUELLE, NIEMALS für Fragen zu aktuellen Werten/Ereignissen der letzten 2 Stunden verwenden, auch "
+            "wenn Einträge scheinbar aktuell aussehen."
+        )
         tools.append({
-            "name": GLOOKO_TOOL_NAME,
-            "description": "Ruft allgemeine Insulinpumpen-Daten (Bolusgaben mit Zeitpunkt/Einheiten, tägliche "
-                           "Basal-/Bolus-/Gesamt-Insulinmenge) für einen Zeitraum ab -- herstellerunabhängig, "
-                           "unabhängig vom konkreten Pumpenmodell. ZEITVERZÖGERTE QUELLE -- NIEMALS für Fragen zu "
-                           "aktuellen Werten/Ereignissen der letzten 2 Stunden verwenden, auch wenn Einträge scheinbar "
-                           "aktuell aussehen.",
-            "inputSchema": _GOOGLE_HEALTH_SCHEMA,
-            "_source": "glooko",
-            "_realtime": False,
+            "name": GLOOKO_SUMMARY_TOOL_NAME,
+            "description": "Bester Startpunkt für jede Übersichtsfrage zur Insulinpumpe/CGM über einen Zeitraum "
+                           "(Tag/Woche/Monat/mehrere Monate) -- liefert feste, günstige Kennzahlen unabhängig von "
+                           "der Fensterlänge: Time-in-Range/TIR, GMI (geschätztes HbA1c), Variationskoeffizient "
+                           "(%CV), höchster/niedrigster Messwert mit Zeitpunkten, bester/schlechtester Tag und "
+                           "Stunde, Insulin (Basal/Bolus-Aufteilung), Bolus-Architektur (Anteil Mahlzeiten-/"
+                           "Korrektur-Boli), Kohlenhydrate und die im Zeitraum gültigen Pumpen-Einstellungen."
+                           + _glooko_note,
+            "inputSchema": _GLOOKO_SUMMARY_SCHEMA, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_TREND_TOOL_NAME,
+            "description": "Glukose-, Insulin- und Kohlenhydrat-Kennzahlen in Zeit-Buckets über eine Spanne -- für "
+                           "\"wie hat sich das Monat für Monat über das letzte Jahr entwickelt\"-Fragen. Jeder Bucket "
+                           "wird unabhängig aus den Rohwerten berechnet (nicht durch Mitteln von Mitteln), daher "
+                           "liefert ein nach Monat aufgeteiltes Jahr 12 korrekte Zeilen in einem Aufruf statt vieler "
+                           "einzelner get_diabetes_summary-Aufrufe." + _glooko_note,
+            "inputSchema": _GLOOKO_TREND_SCHEMA, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_GLUCOSE_TOOL_NAME,
+            "description": "Einzelne, zeitgestempelte CGM-Messwerte für einen Zeitraum, optional gefiltert nach "
+                           "Bereich (nur Hypo-/Hyper-/Zielbereichswerte). Für breite Zeiträume/Diagramme "
+                           "get_chart_series verwenden (deutlich günstiger); für Kennzahlen get_diabetes_summary "
+                           "oder get_trend." + _glooko_note,
+            "inputSchema": _GLOOKO_GLUCOSE_SCHEMA, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_CHART_SERIES_TOOL_NAME,
+            "description": "Auf eine Zielanzahl Punkte herunterge sampelte Glukose-Werte zum Zeichnen eines "
+                           "Diagramms, mit Min/Max-Band pro Punkt (damit Spitzen nicht verloren gehen) plus "
+                           "Bolus-Ereignissen als Marker. Für jede Diagramm-/Chart-Anfrage über einen Zeitraum "
+                           "verwenden statt get_glucose." + _glooko_note,
+            "inputSchema": _GLOOKO_CHART_SERIES_SCHEMA, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_BOLUS_LOG_TOOL_NAME,
+            "description": "Jede Bolusgabe im Zeitraum, angereichert mit dem interpolierten CGM-Wert bei Abgabe "
+                           "sowie ISF, Kohlenhydrat-Faktor (ICR), Zielwert und DIA, die zu diesem Zeitpunkt galten. "
+                           "Enthält abgegebene vs. programmierte Einheiten (abgegeben < programmiert = "
+                           "unterbrochen), Empfehlung des Bolusrechners (Korrektur/Kohlenhydrate/gesamt), ob "
+                           "übersteuert wurde, und die Bolus-Klasse. Für Insulin-Stacking, Bolusrechner-Genauigkeit, "
+                           "unterbrochene Abgaben und Übersteuerungen." + _glooko_note,
+            "inputSchema": _GLOOKO_BOLUS_LOG_SCHEMA, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_HOURLY_TRENDS_TOOL_NAME,
+            "description": "Time-in-Range und Durchschnittsglukose gebündelt nach Tageszeit (UTC-Stunde) über den "
+                           "gesamten Zeitraum -- für \"warum bin ich immer zu einer bestimmten Zeit hoch/niedrig\"-"
+                           "Fragen, wiederkehrende Muster, Dawn-Phänomen, Abend-Hochs." + _glooko_note,
+            "inputSchema": _GLOOKO_HOURLY_SCHEMA, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_BASAL_DELIVERY_TOOL_NAME,
+            "description": "Was die Insulinpumpe mit der Basalrate über die Zeit gemacht hat: normal abgegeben, "
+                           "pausiert (suspend), an der Obergrenze (max), oder blind auf fester Rate gelaufen, weil "
+                           "das CGM-Signal verloren ging (limited). WICHTIG: das sind ZUSTÄNDE, keine Insulin-"
+                           "Mengen (für Einheiten get_daily_insulin verwenden). Für Tiefwert-Untersuchungen "
+                           "(war die Basalrate vorher schon pausiert?) und Rebound-Muster." + _glooko_note,
+            "inputSchema": _GLOOKO_BASAL_DELIVERY_SCHEMA, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_DAILY_INSULIN_TOOL_NAME,
+            "description": "Die eigenen Tagessummen der Insulinpumpen-App: Basal-, Bolus- und Gesamteinheiten pro "
+                           "Tag, wie vom Gerät gemeldet (nicht aus Einzelereignissen neu berechnet). Für eine "
+                           "Tag-für-Tag-Basal-/Bolus-Tabelle oder \"wie viel Insulin insgesamt pro Tag\"."
+                           + _glooko_note,
+            "inputSchema": _GLOOKO_WINDOW_SCHEMA_REF, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_SETTINGS_HISTORY_TOOL_NAME,
+            "description": "Jede Änderung der Pumpen-Profileinstellungen, die im Zeitraum galt, chronologisch: "
+                           "DIA (aktive Insulinzeit), maximale Basalrate, sowie die zeitsegmentierten Ziel-, ISF- "
+                           "und Kohlenhydrat-Faktor-Profile. Nötig, um zu wissen, welche Einstellungen zu einem "
+                           "bestimmten Zeitpunkt galten (z. B. vor Beurteilung eines Bolus)." + _glooko_note,
+            "inputSchema": _GLOOKO_WINDOW_SCHEMA_REF, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_DEVICE_EVENTS_TOOL_NAME,
+            "description": "Wechsel der Kathetereinheit (Insulinpumpe) und CGM-Sensorwechsel als zeitgestempelte "
+                           "Ereignisse. Als KONTEXT für nahegelegene Glukose-Störungen nützlich (eine frische "
+                           "Kathetereinheit kann anfangs hoch laufen, ein neuer Sensor kann während der "
+                           "Aufwärmphase unregelmäßig messen) -- niemals als alleinige Ursache behaupten."
+                           + _glooko_note,
+            "inputSchema": _GLOOKO_WINDOW_SCHEMA_REF, "_source": "glooko", "_realtime": False,
+        })
+        tools.append({
+            "name": GLOOKO_MEAL_WINDOW_TOOL_NAME,
+            "description": "Fokussierter Blick um ein einzelnes Ereignis (typischerweise ein Mahlzeiten-Bolus): "
+                           "genau 30 Minuten davor bis 3 Stunden danach. Für die Beurteilung eines postprandialen "
+                           "Anstiegs und wie gut eine Dosis gewirkt hat. Zeitpunkt vorher z. B. mit "
+                           "get_enriched_bolus_log ermitteln." + _glooko_note,
+            "inputSchema": _GLOOKO_MEAL_WINDOW_SCHEMA, "_source": "glooko", "_realtime": False,
         })
     for server in mcp_servers:
         if not server.get("enabled"):
@@ -282,8 +460,28 @@ async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp
         return await _execute_dexcom(settings)
     if name == LIBRELINKUP_TOOL_NAME:
         return await _execute_librelinkup(settings)
-    if name == GLOOKO_TOOL_NAME:
-        return await _execute_glooko(arguments, settings)
+    if name == GLOOKO_SUMMARY_TOOL_NAME:
+        return await _execute_glooko_summary(arguments, settings)
+    if name == GLOOKO_TREND_TOOL_NAME:
+        return await _execute_glooko_trend(arguments, settings)
+    if name == GLOOKO_GLUCOSE_TOOL_NAME:
+        return await _execute_glooko_glucose(arguments, settings)
+    if name == GLOOKO_CHART_SERIES_TOOL_NAME:
+        return await _execute_glooko_chart_series(arguments, settings)
+    if name == GLOOKO_BOLUS_LOG_TOOL_NAME:
+        return await _execute_glooko_bolus_log(arguments, settings)
+    if name == GLOOKO_HOURLY_TRENDS_TOOL_NAME:
+        return await _execute_glooko_hourly_trends(arguments, settings)
+    if name == GLOOKO_BASAL_DELIVERY_TOOL_NAME:
+        return await _execute_glooko_basal_delivery(arguments, settings)
+    if name == GLOOKO_DAILY_INSULIN_TOOL_NAME:
+        return await _execute_glooko_daily_insulin(arguments, settings)
+    if name == GLOOKO_SETTINGS_HISTORY_TOOL_NAME:
+        return await _execute_glooko_settings_history(arguments, settings)
+    if name == GLOOKO_DEVICE_EVENTS_TOOL_NAME:
+        return await _execute_glooko_device_events(arguments, settings)
+    if name == GLOOKO_MEAL_WINDOW_TOOL_NAME:
+        return await _execute_glooko_meal_window(arguments, settings)
     try:
         for server in mcp_servers:
             if not server.get("enabled"):
@@ -525,38 +723,134 @@ async def _execute_librelinkup(settings: dict) -> str:
     return "\n".join(lines)
 
 
-async def _execute_glooko(arguments: dict[str, Any], settings: dict) -> str:
+def _glooko_window(arguments: dict[str, Any], default_days_back: int = 14) -> tuple[int, int]:
     now = int(time.time() * 1000)
-    from_millis = int(arguments.get("fromEpochMillis") or now - 7 * 24 * 60 * 60 * 1000)
+    from_millis = int(arguments.get("fromEpochMillis") or now - default_days_back * 24 * 60 * 60 * 1000)
     to_millis = int(arguments.get("toEpochMillis") or now)
+    return from_millis, to_millis
+
+
+def _glooko_json(obj: Any) -> str:
+    return json.dumps(obj, ensure_ascii=False, indent=2)
+
+
+async def _execute_glooko_summary(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments)
     try:
-        boluses, daily = await glooko.fetch_pump_data(settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis)
+        result = await glooko.get_diabetes_summary(
+            settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis,
+            arguments.get("lowerMgDl", 70), arguments.get("upperMgDl", 180),
+        )
     except Exception as exc:  # noqa: BLE001
-        return f"Fehler beim Abruf der Insulinpumpen-Daten: {exc}"
-    if not boluses and not daily:
-        return "Keine Insulinpumpen-Daten im angefragten Zeitraum gefunden."
-    lines = []
-    if daily:
-        lines.append("Tägliche Insulinmenge:")
-        for d in daily:
-            date = time.strftime("%d.%m.%Y", time.gmtime(d.date_millis / 1000))
-            parts = [date]
-            if d.basal_units is not None:
-                parts.append(f"Basal {d.basal_units:.1f} E")
-            if d.bolus_units is not None:
-                parts.append(f"Bolus {d.bolus_units:.1f} E")
-            if d.total_units is not None:
-                parts.append(f"gesamt {d.total_units:.1f} E")
-            lines.append(f"{parts[0]}: {', '.join(parts[1:])}" if len(parts) > 1 else parts[0])
-    if boluses:
-        lines.append("Bolusgaben:")
-        for b in boluses:
-            when = time.strftime("%d.%m. %H:%M", time.localtime(b.date_millis / 1000))
-            parts = [when]
-            if b.delivered_units is not None:
-                parts.append(f"{b.delivered_units:.2f} E")
-            if b.carbs_g is not None and b.carbs_g > 0:
-                parts.append(f"{b.carbs_g:.0f} g KH")
-            parts.append("manuell" if b.is_manual else "automatisch/algorithmisch")
-            lines.append(": ".join([parts[0], ", ".join(parts[1:])]))
-    return "\n".join(lines)
+        return f"Fehler beim Abruf der Insulinpumpen-Übersicht: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_trend(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments, default_days_back=90)
+    try:
+        result = await glooko.get_trend(
+            settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis,
+            arguments.get("mode", "calendar"), arguments.get("granularity", "month"),
+            int(arguments.get("fixedSizeDays", 7)), arguments.get("lowerMgDl", 70), arguments.get("upperMgDl", 180),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf des Insulinpumpen-Trends: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_glucose(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments, default_days_back=1)
+    try:
+        result = await glooko.get_glucose(
+            settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis,
+            arguments.get("band", "all"), arguments.get("lowerMgDl", 70), arguments.get("upperMgDl", 180),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der CGM-Werte: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_chart_series(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments, default_days_back=14)
+    try:
+        result = await glooko.get_chart_series(
+            settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis,
+            int(arguments.get("maxPoints", 250)),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Chart-Serie: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_bolus_log(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments, default_days_back=7)
+    try:
+        result = await glooko.get_enriched_bolus_log(
+            settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis, arguments.get("classes"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf des Bolus-Protokolls: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_hourly_trends(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments, default_days_back=14)
+    try:
+        result = await glooko.get_hourly_trends(
+            settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis,
+            arguments.get("lowerMgDl", 70), arguments.get("upperMgDl", 180),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Tageszeit-Muster: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_basal_delivery(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments, default_days_back=7)
+    try:
+        result = await glooko.get_basal_delivery(
+            settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis,
+            bool(arguments.get("includeIntervals", True)),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf des Basalraten-Verhaltens: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_daily_insulin(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments, default_days_back=14)
+    try:
+        result = await glooko.get_daily_insulin(settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis)
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der täglichen Insulinmengen: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_settings_history(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments, default_days_back=90)
+    try:
+        result = await glooko.get_settings_history(settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis)
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Pumpen-Einstellungshistorie: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_device_events(arguments: dict[str, Any], settings: dict) -> str:
+    from_millis, to_millis = _glooko_window(arguments, default_days_back=14)
+    try:
+        result = await glooko.get_device_events(settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis)
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Geräte-Ereignisse: {exc}"
+    return _glooko_json(result)
+
+
+async def _execute_glooko_meal_window(arguments: dict[str, Any], settings: dict) -> str:
+    event_epoch_millis = arguments.get("eventEpochMillis")
+    if event_epoch_millis is None:
+        return "Fehler: eventEpochMillis ist erforderlich."
+    try:
+        result = await glooko.get_meal_window_analysis(settings["glookoUsername"], settings["glookoPassword"], int(event_epoch_millis))
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler bei der Mahlzeitenfenster-Analyse: {exc}"
+    return _glooko_json(result)

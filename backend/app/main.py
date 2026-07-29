@@ -841,8 +841,15 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
 
         total_tool_calls += len(chat_result.tool_calls)
         conversation.append({"role": "assistant", "tool_calls": chat_result.tool_calls, "content": chat_result.text})
-        for tc in chat_result.tool_calls:
-            result_text = await tools.execute_tool(tc["name"], tc["arguments"], settings, mcp_servers)
+        # Run every tool call from this turn concurrently rather than one after another -- e.g. a
+        # question spanning both an overview and a bolus log triggers two Glooko calls in the same
+        # turn, and running them in parallel keeps latency down instead of paying each call's full
+        # round trip sequentially. tools.execute_tool never raises (see its own docstring), so
+        # gather needs no try/except here. Results are zipped back in the original call order.
+        results = await asyncio.gather(*(
+            tools.execute_tool(tc["name"], tc["arguments"], settings, mcp_servers) for tc in chat_result.tool_calls
+        ))
+        for tc, result_text in zip(chat_result.tool_calls, results):
             tool_activity.append({"name": tc["name"], "arguments": tc["arguments"]})
             conversation.append({"role": "tool", "tool_call_id": tc["id"], "name": tc["name"], "content": result_text})
     else:
