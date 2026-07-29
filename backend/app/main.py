@@ -169,6 +169,7 @@ class UpdateProfileRequest(BaseModel):
     lastName: str | None = None
     birthDate: str | None = None
     diabetesSince: str | None = None
+    colorTheme: str | None = None
 
 
 @app.put("/api/users/me")
@@ -185,6 +186,7 @@ def update_own_profile(req: UpdateProfileRequest, user: dict = Depends(current_u
         req.lastName if req.lastName is not None else user.get("lastName", ""),
         req.birthDate if req.birthDate is not None else user.get("birthDate", ""),
         req.diabetesSince if req.diabetesSince is not None else user.get("diabetesSince", ""),
+        req.colorTheme if req.colorTheme is not None else user.get("colorTheme", "MEDICAL_BLUE"),
     )
 
 
@@ -795,10 +797,60 @@ def clear_messages(session_id: str, user: dict = Depends(current_user)) -> dict:
 
 class SendMessageRequest(BaseModel):
     content: str
+    # "Interaktive Rückfrage im Chat": null (the default) means "no explicit choice yet, run the
+    # ambiguity check below". A non-null list means the frontend already resolved a prior
+    # SourceChoiceRequired response (one specific source, or every candidate for "Alle Quellen")
+    # -- see the retry call in ChatPage.tsx's pickSource(). Tool availability this turn is
+    # narrowed to exactly these `_source` ids, and the ambiguity check itself is skipped.
+    selectedSourceIds: list[str] | None = None
 
 
 _MAX_TOOL_ITERATIONS = 5
 _SYSTEM_STATE_TIME_HINT = "\n\n[SYSTEM STATE]\nLokale Zeit: {time}\nMaßeinheit: mg/dL\n[/SYSTEM STATE]"
+
+# Same simple substring-keyword approach as the Android app's inferQueryCategory (see
+# domain/McpServerSelection.kt) -- deliberately no NLP, returns None (ambiguous/off-topic) rather
+# than guessing wrong, so the caller falls back to "don't second-guess, offer every source".
+_SPORT_KEYWORDS = (
+    "sport", "bewegung", "training", "trainiert", "workout", "schritte", "laufen", "joggen",
+    "fitness", "aktivität", "aktivitäten", "fahrrad", "radfahren", "kalorien verbrannt",
+)
+_DIABETES_KEYWORDS = (
+    "blutzucker", "glukose", "insulin", "diabetes", "hypo", "hyper", "kohlenhydrate",
+    "nightscout", "glooko", "tir", "time in range", "bolus", "basal", "sensor", "cgm",
+)
+_BODY_KEYWORDS = (
+    "gewicht", "abgenommen", "zugenommen", "muskelmasse", "muskelanteil", "körperfett",
+    "körperzusammensetzung", "waage", "withings", "bmi",
+)
+
+
+def _infer_query_category(text: str) -> str | None:
+    lower = text.lower()
+    matches = [
+        category for category, keywords in (
+            ("ACTIVITY", _SPORT_KEYWORDS),
+            ("GLUCOSE_TREATMENTS", _DIABETES_KEYWORDS),
+            ("BODY_METRICS", _BODY_KEYWORDS),
+        )
+        if any(k in lower for k in keywords)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _detect_source_ambiguity(sources: dict[str, dict], request_text: str) -> list[dict] | None:
+    """True ambiguity: the question is confidently about ONE category (see
+    _infer_query_category), and 2+ currently-available sources cover that same category -- e.g.
+    glucose data sitting in both Nightscout and Glooko. Returns None (nothing to ask) whenever the
+    category itself is unclear, so an off-topic/general question never triggers a pointless
+    interruption."""
+    category = _infer_query_category(request_text)
+    if category is None:
+        return None
+    candidates = [s for s in sources.values() if s["category"] == category]
+    if len(candidates) < 2:
+        return None
+    return candidates
 
 
 @app.post("/api/chat/sessions/{session_id}/messages")
@@ -810,13 +862,44 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
         raise HTTPException(400, f"Kein API-Key für {provider_type} hinterlegt -- bitte in der LLM-Konfiguration eintragen.")
 
     try:
-        user_message = db.add_message(session_id, user["id"], "user", req.content)
+        # A retry call (selectedSourceIds already resolved, see SendMessageRequest's doc comment)
+        # answers the SAME question already persisted by the original call below -- adding it
+        # again here would duplicate the user's bubble in the chat history.
+        if req.selectedSourceIds is None:
+            user_message = db.add_message(session_id, user["id"], "user", req.content)
+        else:
+            user_message = None
         history = db.list_messages(session_id, user["id"])
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
 
     mcp_servers = db.list_mcp_servers()
     available_tools = await tools.list_available_tools(settings, mcp_servers)
+
+    if req.selectedSourceIds is None:
+        # "Interaktive Rückfrage im Chat": ask instead of silently querying every ambiguous
+        # source (or silently guessing one) whenever 2+ same-category sources could equally
+        # answer this and the user hasn't already resolved it via a source-choice button.
+        sources = tools.sources_by_id(available_tools, settings, mcp_servers)
+        ambiguous = _detect_source_ambiguity(sources, req.content)
+        if ambiguous:
+            is_en = user.get("appLanguage", "DE") == "EN"
+            names = ", ".join(s["name"] for s in ambiguous)
+            question = (
+                f"Several sources are available for this: {names}. Which one should I use?"
+                if is_en else
+                f"Dafür stehen mehrere Quellen zur Verfügung: {names}. Welche soll ich verwenden?"
+            )
+            return {
+                "userMessage": user_message,
+                "sourceChoiceRequired": True,
+                "question": question,
+                "options": [{"id": s["id"], "name": s["name"], "isRestApi": s["isRestApi"]} for s in ambiguous],
+            }
+    else:
+        # Explicit resolution from a source-choice button -- narrow tool availability to exactly
+        # those sources' tools for this turn, same as the ambiguity check would have offered.
+        available_tools = [t for t in available_tools if t["_source"] in req.selectedSourceIds]
 
     app_language = user.get("appLanguage", "DE")
     main_user = _resolve_main_user(user)

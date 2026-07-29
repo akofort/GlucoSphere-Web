@@ -1,18 +1,80 @@
+/* "Einstellungen -> Erscheinungsbild" -- 6 fixed color themes (see SettingsOverviewPage.tsx),
+   switched via a `data-theme` attribute on <html> synced from the logged-in user's own
+   `colorTheme` (see AuthContext.tsx). :root itself IS the MEDICAL_BLUE default (no attribute
+   needed pre-login/for that theme); the other 5 are `[data-theme="..."]` overrides of the same
+   variables. Status colors (--green/--yellow/--red-*) intentionally stay constant across every
+   theme -- they're meaningful glucose-range indicators, not decoration, same choice made for the
+   Android app's equivalent 🟢/🟡/🔴 badges. --rest-api-color/--mcp-color are likewise constant
+   across themes (REST vs. MCP source-type badges, see ChatPage.tsx's source-choice card). */
 :root {
-  --bg: #faf5f3;
-  --surface: #f1e9e6;
-  --surface-2: #e8dfda;
-  --text: #201a18;
-  --text-muted: #5c534f;
-  --accent: #8b4f3f;
+  --bg: #f2f6fb;
+  --surface: #e8f0fa;
+  --surface-2: #dbe7f5;
+  --text: #16202b;
+  --text-muted: #57677a;
+  --accent: #1565c0;
+  --on-accent: #ffffff;
   --green-bg: #d7ecd9;
   --green-text: #1e6b26;
   --yellow-bg: #fbe9c9;
   --yellow-text: #8a5a00;
   --red-bg: #f9d7d3;
   --red-text: #a3271a;
-  --border: #ddd0ca;
+  --border: #cddcee;
+  --rest-api-color: #1976d2;
+  --mcp-color: #7b1fa2;
   font-family: "Segoe UI", Roboto, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+:root[data-theme="EMERALD_GREEN"] {
+  --bg: #f2f9f3;
+  --surface: #e6f4e8;
+  --surface-2: #d7ecda;
+  --text: #16241a;
+  --text-muted: #52705a;
+  --accent: #2e7d32;
+  --border: #c9e3cd;
+}
+
+:root[data-theme="SUNSET_ORANGE"] {
+  --bg: #fdf5ee;
+  --surface: #fbe9d9;
+  --surface-2: #f8dcc2;
+  --text: #2b1c10;
+  --text-muted: #7a5c3f;
+  --accent: #e65100;
+  --border: #f0cba4;
+}
+
+:root[data-theme="CYBER_PURPLE"] {
+  --bg: #f8f2fb;
+  --surface: #efe1f5;
+  --surface-2: #e5d0ee;
+  --text: #241a29;
+  --text-muted: #6a5773;
+  --accent: #6a1b9a;
+  --border: #ddc3e8;
+}
+
+:root[data-theme="OCEAN_TEAL"] {
+  --bg: #eefbf9;
+  --surface: #dcf3ef;
+  --surface-2: #c7e9e3;
+  --text: #142523;
+  --text-muted: #4d6c67;
+  --accent: #00695c;
+  --border: #b9e0da;
+}
+
+:root[data-theme="HIGH_CONTRAST_DARK"] {
+  --bg: #000000;
+  --surface: #0d0d0d;
+  --surface-2: #1a1a1a;
+  --text: #ffffff;
+  --text-muted: #b0b0b0;
+  --accent: #00e5ff;
+  --on-accent: #000000;
+  --border: #333333;
 }
 
 * {
@@ -318,7 +380,7 @@ details.card summary:first-child {
 
 .chip.selected {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 
@@ -363,7 +425,7 @@ details.card summary:first-child {
 
 .btn.primary {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 
 .btn:disabled {
@@ -456,7 +518,7 @@ details.card summary:first-child {
 .chat-bubble.user {
   align-self: flex-end;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   white-space: pre-wrap;
 }
 
@@ -590,7 +652,7 @@ details.card summary:first-child {
   border-radius: 20px;
   padding: 12px 20px;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -606,6 +668,7 @@ details.card summary:first-child {
 
 .chat-input-row .chat-stop-btn {
   background: var(--red-text);
+  color: white;
 }
 
 .empty-state {

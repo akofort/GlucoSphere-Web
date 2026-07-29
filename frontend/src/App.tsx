@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 import OverviewPage from "./pages/OverviewPage";
 import ChatPage from "./pages/ChatPage";
@@ -29,7 +30,15 @@ function AdminRoute({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
+
+  // "Einstellungen -> Erscheinungsbild" -- applies the logged-in user's own color theme by
+  // setting the `data-theme` attribute the 6 palettes in index.css key off of. Runs here (not
+  // inside AuthContext itself) so it stays a pure DOM side effect next to the rest of the app's
+  // top-level rendering, not mixed into the auth state machine.
+  useEffect(() => {
+    document.documentElement.dataset.theme = user?.colorTheme ?? "MEDICAL_BLUE";
+  }, [user?.colorTheme]);
 
   if (status === "loading") {
     return <div className="empty-state">…</div>;

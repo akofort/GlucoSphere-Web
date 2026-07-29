@@ -50,6 +50,7 @@ export interface Strings {
   chatSend: string;
   chatEmptyState: string;
   chatComposing: string;
+  chatSourceChoiceAll: string;
   chatExportPdf: string;
   chatReadAloud: string;
   chatStopReading: string;
@@ -103,6 +104,8 @@ export interface Strings {
   tipsModelTitle: string;
   tipsModelDesc: string;
   settingsLanguage: string;
+  appearanceSectionTitle: string;
+  colorThemeLabel: (theme: string) => string;
   settingsNoApiKey: string;
   settingsProviderActive: (provider: string) => string;
   settingsNightscoutConfigured: string;
@@ -365,6 +368,7 @@ const de: Strings = {
   chatSend: "Senden",
   chatEmptyState: 'Frage stellen, z. B. "Wie ist mein Wert gerade?"',
   chatComposing: "✍️ Formuliere Antwort …",
+  chatSourceChoiceAll: "Alle Quellen",
   chatExportPdf: "Als PDF",
   chatReadAloud: "Vorlesen",
   chatStopReading: "Stoppen",
@@ -424,6 +428,18 @@ const de: Strings = {
   settingsAbout: "Über GlucoSphere",
   settingsAboutSubtitle: "Version, Copyright, Haftungsausschluss",
   settingsLanguage: "Sprache",
+  appearanceSectionTitle: "Erscheinungsbild",
+  colorThemeLabel: (theme) =>
+    (
+      {
+        MEDICAL_BLUE: "Medizinisches Blau",
+        EMERALD_GREEN: "Emerald Green",
+        SUNSET_ORANGE: "Sunset Orange",
+        CYBER_PURPLE: "Cyber Purple",
+        OCEAN_TEAL: "Ocean Teal",
+        HIGH_CONTRAST_DARK: "High Contrast / AMOLED Dark",
+      } as Record<string, string>
+    )[theme] ?? theme,
   settingsNoApiKey: "Kein API-Key hinterlegt",
   settingsProviderActive: (provider) => `${provider} aktiv`,
   settingsNightscoutConfigured: "Nightscout konfiguriert",
@@ -699,6 +715,7 @@ const en: Strings = {
   chatSend: "Send",
   chatEmptyState: 'Ask a question, e.g. "How is my level right now?"',
   chatComposing: "✍️ Composing answer …",
+  chatSourceChoiceAll: "All sources",
   chatExportPdf: "As PDF",
   chatReadAloud: "Read aloud",
   chatStopReading: "Stop",
@@ -758,6 +775,18 @@ const en: Strings = {
   settingsAbout: "About GlucoSphere",
   settingsAboutSubtitle: "Version, copyright, disclaimer",
   settingsLanguage: "Language",
+  appearanceSectionTitle: "Appearance",
+  colorThemeLabel: (theme) =>
+    (
+      {
+        MEDICAL_BLUE: "Medical Blue",
+        EMERALD_GREEN: "Emerald Green",
+        SUNSET_ORANGE: "Sunset Orange",
+        CYBER_PURPLE: "Cyber Purple",
+        OCEAN_TEAL: "Ocean Teal",
+        HIGH_CONTRAST_DARK: "High Contrast / AMOLED Dark",
+      } as Record<string, string>
+    )[theme] ?? theme,
   settingsNoApiKey: "No API key set",
   settingsProviderActive: (provider) => `${provider} active`,
   settingsNightscoutConfigured: "Nightscout configured",

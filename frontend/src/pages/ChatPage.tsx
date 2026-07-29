@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, type ChatMessage, type ChatSession } from "../lib/api";
+import { api, type ChatMessage, type ChatSession, type SourceOption } from "../lib/api";
 import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
 import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
@@ -40,6 +40,7 @@ export default function ChatPage() {
   const [speakingId, setSpeakingId] = useState<number | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState("");
+  const [pendingSourceChoice, setPendingSourceChoice] = useState<{ content: string; question: string; options: SourceOption[] } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -91,22 +92,32 @@ export default function ChatPage() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [input]);
 
-  const send = async (rawContent: string, targetSessionId: string | null) => {
+  const send = async (rawContent: string, targetSessionId: string | null, selectedSourceIds?: string[]) => {
     const content = rawContent.trim();
     if (!content || !targetSessionId || sending) return;
-    setInput("");
+    // A retry call (selectedSourceIds set, from pickSource() below) answers the SAME question
+    // already shown as a user bubble from the original call -- don't clear the input or push a
+    // second, duplicate bubble for it.
+    if (!selectedSourceIds) {
+      setInput("");
+      setMessages((prev) => [
+        ...prev,
+        { id: -1, sessionId: targetSessionId, role: "user", content, createdAt: Date.now() },
+      ]);
+    }
     setError(null);
     setLastToolActivity([]);
+    setPendingSourceChoice(null);
     setSending(true);
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    setMessages((prev) => [
-      ...prev,
-      { id: -1, sessionId: targetSessionId, role: "user", content, createdAt: Date.now() },
-    ]);
     try {
-      const { toolActivity } = await api.sendMessage(targetSessionId, content, controller.signal);
-      setLastToolActivity(toolActivity.map((t) => t.name));
+      const result = await api.sendMessage(targetSessionId, content, controller.signal, selectedSourceIds);
+      if (result.sourceChoiceRequired && result.question && result.options) {
+        setPendingSourceChoice({ content, question: result.question, options: result.options });
+        return;
+      }
+      setLastToolActivity((result.toolActivity ?? []).map((t) => t.name));
       const { messages: msgs } = await api.getMessages(targetSessionId);
       setMessages(msgs);
     } catch (err) {
@@ -119,6 +130,15 @@ export default function ChatPage() {
       setSending(false);
       abortControllerRef.current = null;
     }
+  };
+
+  /** Item 4's "Interaktive Rückfrage": [id] null picks "Alle Quellen" (every candidate this
+   * question was ambiguous between); otherwise re-sends the same question narrowed to exactly
+   * that one source. */
+  const pickSource = (id: string | null) => {
+    if (!pendingSourceChoice) return;
+    const ids = id ? [id] : pendingSourceChoice.options.map((o) => o.id);
+    send(pendingSourceChoice.content, sessionId, ids);
   };
 
   const stopGenerating = () => {
@@ -309,6 +329,30 @@ export default function ChatPage() {
             </div>
           ))}
           {sending && <div className="chat-bubble assistant">{t.chatComposing}</div>}
+          {pendingSourceChoice && (
+            <div className="card source-choice-card">
+              <p style={{ margin: "0 0 10px" }}>{pendingSourceChoice.question}</p>
+              <div className="range-chips">
+                {pendingSourceChoice.options.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    className="chip source-choice-btn"
+                    style={{
+                      borderColor: o.isRestApi ? "var(--rest-api-color)" : "var(--mcp-color)",
+                      color: o.isRestApi ? "var(--rest-api-color)" : "var(--mcp-color)",
+                    }}
+                    onClick={() => pickSource(o.id)}
+                  >
+                    {o.name}
+                  </button>
+                ))}
+                <button type="button" className="chip" onClick={() => pickSource(null)}>
+                  {t.chatSourceChoiceAll}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         {error && <div className="test-result error">{error}</div>}
         <div ref={bottomRef} />

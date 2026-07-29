@@ -1,3 +1,5 @@
+export type ColorTheme = "MEDICAL_BLUE" | "EMERALD_GREEN" | "SUNSET_ORANGE" | "CYBER_PURPLE" | "OCEAN_TEAL" | "HIGH_CONTRAST_DARK";
+
 export interface User {
   id: string;
   username: string;
@@ -12,6 +14,7 @@ export interface User {
   lastName: string;
   birthDate: string;
   diabetesSince: string;
+  colorTheme: ColorTheme;
   createdAt: number;
 }
 
@@ -194,6 +197,15 @@ export interface ChatMessage {
   model?: string | null;
 }
 
+/** One candidate data source in a chat "welche Quelle?" disambiguation (see
+ * ChatPage.tsx's pendingSourceChoice) -- `isRestApi` drives the blue (direct/native integration)
+ * vs. violet (MCP server) button color, mirroring the Android app's REST/MCP badge colors. */
+export interface SourceOption {
+  id: string;
+  name: string;
+  isRestApi: boolean;
+}
+
 export interface LogEntry {
   id: number;
   provider: string;
@@ -249,7 +261,7 @@ export const api = {
   updateOwnProfile: (body: {
     displayName: string; userRole: string; appLanguage: string;
     glucoseUnit?: string; insulinPump?: string; cgmSystem?: string; linkedMainUserId?: string;
-    lastName?: string; birthDate?: string; diabetesSince?: string;
+    lastName?: string; birthDate?: string; diabetesSince?: string; colorTheme?: string;
   }) => request<User>("/users/me", { method: "PUT", body: JSON.stringify(body) }),
   getPatientProfile: () => request<PatientProfile>("/patient-profile"),
   getDiabetikerAccounts: () => request<{ accounts: DiabetikerAccount[] }>("/users/diabetiker-accounts"),
@@ -314,10 +326,20 @@ export const api = {
     request<ChatSession>(`/chat/sessions/${id}`, { method: "PUT", body: JSON.stringify({ title }) }),
   getMessages: (sessionId: string) => request<{ messages: ChatMessage[] }>(`/chat/sessions/${sessionId}/messages`),
   clearMessages: (sessionId: string) => request<{ cleared: boolean }>(`/chat/sessions/${sessionId}/messages`, { method: "DELETE" }),
-  sendMessage: (sessionId: string, content: string, signal?: AbortSignal) =>
-    request<{ userMessage: ChatMessage; assistantMessage: ChatMessage; toolActivity: { name: string; arguments: Record<string, unknown> }[] }>(`/chat/sessions/${sessionId}/messages`, {
+  sendMessage: (sessionId: string, content: string, signal?: AbortSignal, selectedSourceIds?: string[]) =>
+    request<{
+      userMessage: ChatMessage | null;
+      assistantMessage?: ChatMessage;
+      toolActivity?: { name: string; arguments: Record<string, unknown> }[];
+      /** "Interaktive Rückfrage": present instead of assistantMessage/toolActivity whenever 2+
+       * same-category sources could equally answer this and no explicit choice was made yet --
+       * see ChatPage.tsx's pendingSourceChoice/pickSource. */
+      sourceChoiceRequired?: boolean;
+      question?: string;
+      options?: SourceOption[];
+    }>(`/chat/sessions/${sessionId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, selectedSourceIds: selectedSourceIds ?? null }),
       signal,
     }),
   exportBackup: (password: string) =>

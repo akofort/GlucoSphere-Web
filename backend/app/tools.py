@@ -401,6 +401,55 @@ def build_realtime_hint(available_tools: list[dict], is_en: bool) -> str:
     return "\n".join(lines)
 
 
+_NATIVE_SOURCE_NAMES = {
+    "nightscout": "Nightscout",
+    "feelfit": "FeelFit",
+    "google_health": "Google Health",
+    "dexcom": "Dexcom",
+    "librelinkup": "LibreLinkUp",
+    "glooko": "Glooko",
+}
+_NATIVE_SOURCE_CATEGORY_KEYS = {
+    "nightscout": "nightscoutCategory",
+    "feelfit": "feelfitCategory",
+    "google_health": "googleHealthCategory",
+    "dexcom": "dexcomCategory",
+    "librelinkup": "libreCategory",
+    "glooko": "glookoCategory",
+}
+
+
+def sources_by_id(available_tools: list[dict], settings: dict, mcp_servers: list[dict]) -> dict[str, dict]:
+    """One row per distinct `_source` actually present in `available_tools` this turn --
+    {id, name, category, isRestApi} -- for the chat "welche Quelle?" disambiguation (see
+    main.py::send_message). `isRestApi` mirrors the same REST-vs-MCP distinction the Android app
+    draws (see its ui/theme/SourceTypeColors.kt): every built-in native integration counts as
+    "direct" here (blue badge), same as Nightscout's direct REST API was on Android -- an MCP
+    server (the user's own, arbitrary, external server) is the only "MCP" (violet badge) case."""
+    mcp_by_id = {s["id"]: s for s in mcp_servers}
+    result: dict[str, dict] = {}
+    for t in available_tools:
+        source_id = t["_source"]
+        if source_id in result:
+            continue
+        if source_id in _NATIVE_SOURCE_NAMES:
+            result[source_id] = {
+                "id": source_id,
+                "name": _NATIVE_SOURCE_NAMES[source_id],
+                "category": settings.get(_NATIVE_SOURCE_CATEGORY_KEYS[source_id], "GLUCOSE_TREATMENTS"),
+                "isRestApi": True,
+            }
+        else:
+            server = mcp_by_id.get(source_id)
+            result[source_id] = {
+                "id": source_id,
+                "name": server["name"] if server else source_id,
+                "category": server.get("category", "OTHER") if server else "OTHER",
+                "isRestApi": False,
+            }
+    return result
+
+
 async def resolve_server_auth(server: dict, force_refresh: bool = False) -> dict:
     """OAuth2 servers store a client id/secret/endpoints, not a manually entered token --
     resolves (refreshing if needed) a current access token and returns a server dict shaped like

@@ -257,6 +257,9 @@ def init_db() -> None:
         _add_column_if_missing(conn, "users", "last_name", "TEXT NOT NULL DEFAULT ''")
         _add_column_if_missing(conn, "users", "birth_date", "TEXT NOT NULL DEFAULT ''")
         _add_column_if_missing(conn, "users", "diabetes_since", "TEXT NOT NULL DEFAULT ''")
+        # "Einstellungen -> Erscheinungsbild" -- per-user like app_language (one browser login is
+        # one person's own preference, not a shared device setting the way it is on Android).
+        _add_column_if_missing(conn, "users", "color_theme", "TEXT NOT NULL DEFAULT 'MEDICAL_BLUE'")
         row = conn.execute("SELECT 1 FROM settings WHERE id = 1").fetchone()
         if row is None:
             conn.execute(
@@ -419,6 +422,7 @@ def _user_row_to_dict(r: sqlite3.Row) -> dict[str, Any]:
         "lastName": r["last_name"],
         "birthDate": r["birth_date"],
         "diabetesSince": r["diabetes_since"],
+        "colorTheme": r["color_theme"],
         "createdAt": r["created_at"],
     }
 
@@ -490,15 +494,16 @@ def update_own_profile(
     user_id: str, display_name: str, user_role: str, app_language: str,
     glucose_unit: str = "MG_DL", insulin_pump: str = "NONE", cgm_system: str = "NONE",
     linked_main_user_id: str = "", last_name: str = "", birth_date: str = "", diabetes_since: str = "",
+    color_theme: str = "MEDICAL_BLUE",
 ) -> dict[str, Any]:
     with get_conn() as conn:
         conn.execute(
             "UPDATE users SET display_name = ?, user_role = ?, app_language = ?, "
             "glucose_unit = ?, insulin_pump = ?, cgm_system = ?, linked_main_user_id = ?, "
-            "last_name = ?, birth_date = ?, diabetes_since = ? WHERE id = ?",
+            "last_name = ?, birth_date = ?, diabetes_since = ?, color_theme = ? WHERE id = ?",
             (
                 display_name, user_role, app_language, glucose_unit, insulin_pump, cgm_system,
-                linked_main_user_id, last_name, birth_date, diabetes_since, user_id,
+                linked_main_user_id, last_name, birth_date, diabetes_since, color_theme, user_id,
             ),
         )
     return get_user(user_id)  # type: ignore[return-value]
