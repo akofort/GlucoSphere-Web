@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from . import db, dexcom_share, feelfit, glooko, google_health, librelinkup, mcp_client, nightscout, oauth, withings
 
@@ -18,6 +18,9 @@ NIGHTSCOUT_PROFILE_TOOL_NAME = "get_nightscout_profile"
 NIGHTSCOUT_DEVICESTATUS_TOOL_NAME = "get_nightscout_devicestatus"
 FEELFIT_TOOL_NAME = "get_body_composition_history"
 WITHINGS_TOOL_NAME = "get_withings_body_composition"
+WITHINGS_ACTIVITY_TOOL_NAME = "get_withings_activity"
+WITHINGS_SLEEP_TOOL_NAME = "get_withings_sleep"
+WITHINGS_WORKOUTS_TOOL_NAME = "get_withings_workouts"
 GOOGLE_HEALTH_TOOL_NAME = "get_google_health_blood_glucose"
 GOOGLE_HEALTH_SLEEP_TOOL_NAME = "get_google_health_sleep"
 GOOGLE_HEALTH_STEPS_TOOL_NAME = "get_google_health_steps"
@@ -51,6 +54,7 @@ _NIGHTSCOUT_SCHEMA = {
 
 _FEELFIT_SCHEMA = {"type": "object", "properties": {}}
 _WITHINGS_SCHEMA = {"type": "object", "properties": {}}
+_WITHINGS_WINDOW_SCHEMA = _NIGHTSCOUT_SCHEMA
 _NIGHTSCOUT_TREATMENTS_SCHEMA = _NIGHTSCOUT_SCHEMA
 _NIGHTSCOUT_PROFILE_SCHEMA = {"type": "object", "properties": {}}
 _NIGHTSCOUT_DEVICESTATUS_SCHEMA = {"type": "object", "properties": {}}
@@ -264,6 +268,33 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                                "Integration (Blau-Kennzeichnung '⚡ Direkt-API' in den Einstellungen), keine MCP-"
                                "Anbindung.",
                 "inputSchema": _WITHINGS_SCHEMA,
+                "_source": "withings",
+                "_realtime": False,
+            })
+            tools.append({
+                "name": WITHINGS_ACTIVITY_TOOL_NAME,
+                "description": "Ruft tägliche Aktivitätswerte (Schritte, Distanz, Kalorien, Höhenmeter, Aktivitätsminuten "
+                               "nach Intensität, Puls-Durchschnitt/Min/Max) für einen Zeitraum von einer verbundenen "
+                               "Withings-Smartwatch/-Aktivitätstracker über die direkte Withings-REST-API ab.",
+                "inputSchema": _WITHINGS_WINDOW_SCHEMA,
+                "_source": "withings",
+                "_realtime": False,
+            })
+            tools.append({
+                "name": WITHINGS_SLEEP_TOOL_NAME,
+                "description": "Ruft tägliche Schlaf-Zusammenfassungen (Gesamtschlafzeit, Leicht-/Tief-/REM-Schlaf, "
+                               "Aufwachhäufigkeit/-dauer, Schlaf-Score, Puls-Durchschnitt) für einen Zeitraum von einer "
+                               "verbundenen Withings-Smartwatch über die direkte Withings-REST-API ab.",
+                "inputSchema": _WITHINGS_WINDOW_SCHEMA,
+                "_source": "withings",
+                "_realtime": False,
+            })
+            tools.append({
+                "name": WITHINGS_WORKOUTS_TOOL_NAME,
+                "description": "Ruft einzelne Trainingseinheiten/Workouts (Sportart, Start-/Endzeit, Kalorien, Distanz, "
+                               "Schritte, Puls-Durchschnitt) für einen Zeitraum von einer verbundenen Withings-"
+                               "Smartwatch über die direkte Withings-REST-API ab.",
+                "inputSchema": _WITHINGS_WINDOW_SCHEMA,
                 "_source": "withings",
                 "_realtime": False,
             })
@@ -552,6 +583,9 @@ _TOOL_NAME_TO_SOURCE_ID = {
     GOOGLE_HEALTH_RESTING_HEART_RATE_TOOL_NAME: "google_health",
     GOOGLE_HEALTH_HRV_TOOL_NAME: "google_health",
     WITHINGS_TOOL_NAME: "withings",
+    WITHINGS_ACTIVITY_TOOL_NAME: "withings",
+    WITHINGS_SLEEP_TOOL_NAME: "withings",
+    WITHINGS_WORKOUTS_TOOL_NAME: "withings",
     DEXCOM_TOOL_NAME: "dexcom",
     LIBRELINKUP_TOOL_NAME: "librelinkup",
     GLOOKO_SUMMARY_TOOL_NAME: "glooko",
@@ -604,6 +638,12 @@ async def _dispatch_native(name: str, arguments: dict[str, Any], settings: dict)
         return await _execute_google_health_hrv(arguments, settings)
     if name == WITHINGS_TOOL_NAME:
         return await _execute_withings(settings)
+    if name == WITHINGS_ACTIVITY_TOOL_NAME:
+        return await _execute_withings_activity(arguments, settings)
+    if name == WITHINGS_SLEEP_TOOL_NAME:
+        return await _execute_withings_sleep(arguments, settings)
+    if name == WITHINGS_WORKOUTS_TOOL_NAME:
+        return await _execute_withings_workouts(arguments, settings)
     if name == DEXCOM_TOOL_NAME:
         return await _execute_dexcom(settings)
     if name == LIBRELINKUP_TOOL_NAME:
@@ -976,19 +1016,24 @@ def _format_withings_trend(label: str, trend: "withings.Trend | None", unit: str
     return f"{label}-Trend (3 Monate): {trend.arrow} {direction_label} ({trend.change:+.1f} {unit} zwischen erster und letzter Messung)"
 
 
+async def _withings_call_with_retry(settings: dict, call: Callable[[str], Awaitable[Any]]) -> Any:
+    """Runs `call(access_token)` once with the cached token, retrying once with a forced refresh
+    on a 401 -- shared by every _execute_withings_* function below so the retry logic (see
+    WithingsError's doc comment: Withings can invalidate a token well before its reported expiry,
+    confirmed live) isn't duplicated in each of them."""
+    access_token = await withings.get_valid_access_token(settings, _save_withings_tokens)
+    try:
+        return await call(access_token)
+    except withings.WithingsError as exc:
+        if exc.status_code != 401:
+            raise
+        access_token = await withings.get_valid_access_token(settings, _save_withings_tokens, force_refresh=True)
+        return await call(access_token)
+
+
 async def _execute_withings(settings: dict) -> str:
     try:
-        access_token = await withings.get_valid_access_token(settings, _save_withings_tokens)
-        try:
-            result = await withings.fetch_weight_and_fat_trend(access_token)
-        except withings.WithingsError as exc:
-            if exc.status_code != 401:
-                raise
-            # The cached token looked valid (expiry not yet reached) but Withings rejected it
-            # anyway -- force a real refresh and retry once before giving up (see
-            # WithingsError's doc comment; confirmed live).
-            access_token = await withings.get_valid_access_token(settings, _save_withings_tokens, force_refresh=True)
-            result = await withings.fetch_weight_and_fat_trend(access_token)
+        result = await _withings_call_with_retry(settings, withings.fetch_weight_and_fat_trend)
     except Exception as exc:  # noqa: BLE001
         return f"Fehler beim Abruf der Withings-Daten: {exc}"
     if not result.readings:
@@ -1005,6 +1050,99 @@ async def _execute_withings(settings: dict) -> str:
     lines.append("")
     lines.append(_format_withings_trend("Gewicht", result.weight_trend, "kg"))
     lines.append(_format_withings_trend("Körperfett", result.fat_trend, "%"))
+    return "\n".join(lines)
+
+
+async def _execute_withings_activity(arguments: dict[str, Any], settings: dict) -> str:
+    now = int(time.time() * 1000)
+    from_millis = int(arguments.get("fromEpochMillis") or now - 7 * 24 * 60 * 60 * 1000)
+    to_millis = int(arguments.get("toEpochMillis") or now)
+    try:
+        days = await _withings_call_with_retry(
+            settings, lambda token: withings.fetch_activity(token, from_millis, to_millis),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Withings-Aktivitätsdaten: {exc}"
+    if not days:
+        return "Keine Withings-Aktivitätsdaten (Schritte etc.) im angefragten Zeitraum gefunden."
+    lines = []
+    for d in days:
+        date = time.strftime("%d.%m.%Y", time.localtime(d.date_millis / 1000))
+        parts = [date]
+        if d.steps is not None:
+            parts.append(f"{d.steps} Schritte")
+        if d.distance_meters is not None:
+            parts.append(f"{d.distance_meters / 1000:.1f} km")
+        if d.calories_kcal is not None:
+            parts.append(f"{d.calories_kcal:.0f} kcal")
+        if d.elevation_meters is not None:
+            parts.append(f"{d.elevation_meters:.0f} Höhenmeter")
+        if d.hr_average_bpm is not None:
+            parts.append(f"Puls Ø {d.hr_average_bpm} (min {d.hr_min_bpm}, max {d.hr_max_bpm})")
+        lines.append(f"{parts[0]}: {', '.join(parts[1:])}" if len(parts) > 1 else parts[0])
+    return "\n".join(lines)
+
+
+async def _execute_withings_sleep(arguments: dict[str, Any], settings: dict) -> str:
+    now = int(time.time() * 1000)
+    from_millis = int(arguments.get("fromEpochMillis") or now - 7 * 24 * 60 * 60 * 1000)
+    to_millis = int(arguments.get("toEpochMillis") or now)
+    try:
+        nights = await _withings_call_with_retry(
+            settings, lambda token: withings.fetch_sleep_summary(token, from_millis, to_millis),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Withings-Schlafdaten: {exc}"
+    if not nights:
+        return "Keine Withings-Schlafdaten im angefragten Zeitraum gefunden."
+    lines = []
+    for n in nights:
+        date = time.strftime("%d.%m.%Y", time.localtime(n.date_millis / 1000))
+        parts = [date]
+        if n.total_sleep_minutes is not None:
+            parts.append(f"Gesamtschlaf {n.total_sleep_minutes // 60}h {n.total_sleep_minutes % 60}min")
+        if n.light_sleep_minutes is not None:
+            parts.append(f"leicht {n.light_sleep_minutes}min")
+        if n.deep_sleep_minutes is not None:
+            parts.append(f"tief {n.deep_sleep_minutes}min")
+        if n.rem_sleep_minutes is not None:
+            parts.append(f"REM {n.rem_sleep_minutes}min")
+        if n.wakeup_count is not None:
+            parts.append(f"{n.wakeup_count}x aufgewacht")
+        if n.sleep_score is not None:
+            parts.append(f"Schlaf-Score {n.sleep_score}")
+        if n.hr_average_bpm is not None:
+            parts.append(f"Puls Ø {n.hr_average_bpm}")
+        lines.append(f"{parts[0]}: {', '.join(parts[1:])}" if len(parts) > 1 else parts[0])
+    return "\n".join(lines)
+
+
+async def _execute_withings_workouts(arguments: dict[str, Any], settings: dict) -> str:
+    now = int(time.time() * 1000)
+    from_millis = int(arguments.get("fromEpochMillis") or now - 7 * 24 * 60 * 60 * 1000)
+    to_millis = int(arguments.get("toEpochMillis") or now)
+    try:
+        workouts = await _withings_call_with_retry(
+            settings, lambda token: withings.fetch_workouts(token, from_millis, to_millis),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Withings-Trainingsdaten: {exc}"
+    if not workouts:
+        return "Keine Withings-Trainingseinheiten im angefragten Zeitraum gefunden."
+    lines = []
+    for w in workouts:
+        start = time.strftime("%d.%m.%Y %H:%M", time.localtime(w.start_millis / 1000))
+        duration_min = round((w.end_millis - w.start_millis) / 60_000)
+        parts = [f"{start} ({w.category_label}, {duration_min} min)"]
+        if w.calories_kcal is not None:
+            parts.append(f"{w.calories_kcal:.0f} kcal")
+        if w.distance_meters is not None:
+            parts.append(f"{w.distance_meters / 1000:.1f} km")
+        if w.steps is not None:
+            parts.append(f"{w.steps} Schritte")
+        if w.hr_average_bpm is not None:
+            parts.append(f"Puls Ø {w.hr_average_bpm}")
+        lines.append(f"{parts[0]}: {', '.join(parts[1:])}" if len(parts) > 1 else parts[0])
     return "\n".join(lines)
 
 

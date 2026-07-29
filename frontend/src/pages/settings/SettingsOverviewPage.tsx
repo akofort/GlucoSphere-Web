@@ -87,10 +87,10 @@ export default function SettingsOverviewPage() {
           </div>
         </div>
 
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: "block", fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: 8 }}>
-            {t.appearanceSectionTitle}
-          </label>
+        <details className="card">
+          <summary>
+            <h2 style={{ fontSize: "1rem" }}>{t.appearanceSectionTitle}</h2>
+          </summary>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
             {THEME_ORDER.map((theme) => (
               <div key={theme} style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 72 }}>
@@ -121,7 +121,7 @@ export default function SettingsOverviewPage() {
               </div>
             ))}
           </div>
-        </div>
+        </details>
 
         <div className="settings-menu">
           <Link to="/settings/profile">
