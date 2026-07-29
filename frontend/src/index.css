@@ -116,11 +116,16 @@ a {
   min-height: 100vh;
 }
 
+/* `sticky`, not `fixed`: a fixed topbar is pulled out of normal flow entirely, so `.content`
+   below it had to guess a fixed padding-top to avoid being covered -- broken on narrow phones
+   whenever the title (now dynamic, "GlucoSphere · <patient name>") wraps to a second line, since
+   the topbar's real height then exceeds that guess and overlaps the page's own first row (e.g.
+   the Übersicht's time-range chips). Sticky still pins the topbar to the viewport top on scroll,
+   but reserves its own actual (1- or 2-line) height in the flex flow, so `.content` always starts
+   right after it with no fixed guess needed at all. */
 .topbar {
-  position: fixed;
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
   z-index: 10;
   display: flex;
   align-items: center;
@@ -157,7 +162,6 @@ a {
 .content {
   flex: 1;
   padding: 20px;
-  padding-top: 76px;
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
