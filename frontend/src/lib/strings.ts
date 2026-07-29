@@ -16,6 +16,7 @@ export interface Strings {
 
   navOverview: string;
   navChat: string;
+  navSettings: string;
 
   loginTitle: string;
   loginUsername: string;
@@ -347,6 +348,7 @@ const de: Strings = {
 
   navOverview: "Übersicht",
   navChat: "Chat",
+  navSettings: "Einstellungen",
 
   loginTitle: "GlucoSphere",
   loginUsername: "Benutzername",
@@ -707,6 +709,7 @@ const en: Strings = {
 
   navOverview: "Overview",
   navChat: "Chat",
+  navSettings: "Settings",
 
   loginTitle: "GlucoSphere",
   loginUsername: "Username",

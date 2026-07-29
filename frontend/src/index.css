@@ -187,11 +187,20 @@ a {
 
 .bottom-nav a {
   flex: 1;
-  text-align: center;
-  padding: 12px 0 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 0 12px;
   color: var(--text-muted);
   text-decoration: none;
-  font-size: 0.85rem;
+  font-size: 0.7rem;
+  transition: color 0.15s ease;
+}
+
+.bottom-nav a svg {
+  flex-shrink: 0;
 }
 
 .bottom-nav a.active {
@@ -625,7 +634,9 @@ details.card summary:first-child {
 
 .chat-input-row {
   position: fixed;
-  bottom: 60px;
+  /* .bottom-nav grew taller (icon + label instead of just a text link) -- keep this in sync so
+     the input row doesn't end up flush against/overlapping it. */
+  bottom: 68px;
   left: 0;
   right: 0;
   display: flex;
