@@ -8,18 +8,16 @@ const KEY_FIELD: Record<string, keyof Settings> = {
   CLAUDE: "claudeApiKey",
   OPENAI: "openAiApiKey",
   DEEPSEEK: "deepseekApiKey",
-  ONEPROVIDER_FREE: "oneProviderApiKey",
 };
 const MODEL_FIELD: Record<string, keyof Settings> = {
   GEMINI: "geminiModel",
   CLAUDE: "claudeModel",
   OPENAI: "openAiModel",
   DEEPSEEK: "deepseekModel",
-  ONEPROVIDER_FREE: "oneProviderModel",
 };
 // Only these two providers support a custom endpoint (OpenAI-compatible APIs like OpenRouter or
-// a local Ollama, and Anthropic-compatible proxies) -- GEMINI/DEEPSEEK/ONEPROVIDER_FREE always use
-// their fixed backend default, see model_catalog.py.
+// a local Ollama, and Anthropic-compatible proxies) -- GEMINI/DEEPSEEK always use their fixed
+// backend default, see model_catalog.py.
 const BASE_URL_FIELD: Partial<Record<string, keyof Settings>> = {
   CLAUDE: "claudeBaseUrl",
   OPENAI: "openAiBaseUrl",
@@ -102,7 +100,7 @@ export default function LlmConfigPage() {
 
   const activeProvider = providers.find((p) => p.type === settings.llmProviderType);
   const baseUrlField = BASE_URL_FIELD[settings.llmProviderType];
-  const canSave = apiKey.trim() === "" || (testResult?.ok ?? false) || settings.llmProviderType === "ONEPROVIDER_FREE";
+  const canSave = apiKey.trim() === "" || (testResult?.ok ?? false);
 
   return (
     <SettingsScaffold title={t.llmConfigTitle}>
@@ -124,7 +122,7 @@ export default function LlmConfigPage() {
 
       <div className="card">
         <div className="field">
-          <label>{settings.llmProviderType === "ONEPROVIDER_FREE" ? t.llmConfigApiKeyOptional : t.llmConfigApiKeyLabel}</label>
+          <label>{t.llmConfigApiKeyLabel}</label>
           <input
             type="password"
             value={apiKey}
@@ -185,7 +183,7 @@ export default function LlmConfigPage() {
         )}
 
         <div className="btn-row">
-          <button className="btn" onClick={test} disabled={testing || (apiKey.trim() === "" && settings.llmProviderType !== "ONEPROVIDER_FREE")}>
+          <button className="btn" onClick={test} disabled={testing || apiKey.trim() === ""}>
             {testing ? t.genericTesting : t.genericTest}
           </button>
           <button className="btn primary" onClick={save} disabled={saving || !canSave}>

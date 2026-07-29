@@ -56,6 +56,8 @@ export interface Strings {
   overviewExportPdf: string;
   chatHistory: string;
   chatNewChat: string;
+  chatRename: string;
+  chatStop: string;
   chatDeleteHistory: string;
   chatDeleteHistoryTitle: string;
   chatDeleteHistoryText: string;
@@ -117,7 +119,6 @@ export interface Strings {
   llmConfigTitle: string;
   llmConfigProviderSection: string;
   llmConfigApiKeyLabel: string;
-  llmConfigApiKeyOptional: string;
   llmConfigApiKeyPlaceholder: string;
   llmConfigBaseUrlLabel: string;
   llmConfigBaseUrlHint: string;
@@ -145,6 +146,10 @@ export interface Strings {
   dataSourcesDexcomHint: string;
   dataSourcesDexcomUsername: string;
   dataSourcesDexcomPassword: string;
+  dataSourcesGlookoTitle: string;
+  dataSourcesGlookoHint: string;
+  dataSourcesGlookoUsername: string;
+  dataSourcesGlookoPassword: string;
   dataSourcesDexcomRegion: string;
   dataSourcesDexcomRegionUs: string;
   dataSourcesDexcomRegionOus: string;
@@ -353,6 +358,8 @@ const de: Strings = {
   overviewExportPdf: "PDF exportieren",
   chatHistory: "Verlauf",
   chatNewChat: "+ Neuer Chat",
+  chatRename: "Umbenennen",
+  chatStop: "Stopp",
   chatDeleteHistory: "Chatverlauf löschen",
   chatDeleteHistoryTitle: "Chatverlauf löschen",
   chatDeleteHistoryText: "Möchtest du den gesamten Chatverlauf wirklich löschen?",
@@ -420,7 +427,6 @@ const de: Strings = {
   llmConfigTitle: "LLM-Konfiguration",
   llmConfigProviderSection: "KI-Anbieter",
   llmConfigApiKeyLabel: "API-Key",
-  llmConfigApiKeyOptional: "API-Key (optional)",
   llmConfigApiKeyPlaceholder: "API-Key eingeben",
   llmConfigBaseUrlLabel: "API-Basis-URL",
   llmConfigBaseUrlHint: "Für einen kompatiblen Endpunkt statt des Standard-Anbieters -- z. B. OpenRouter (https://openrouter.ai/api/v1) oder ein lokales Ollama (http://localhost:11434/v1). Leer lassen für den Standard.",
@@ -448,6 +454,10 @@ const de: Strings = {
   dataSourcesDexcomHint: "Direkter Zugriff auf aktuelle CGM-Werte über die Dexcom-Share-API (dieselbe Cloud-API wie die Dexcom-Follow-App) -- liefert nur die letzten bis zu 24 Stunden, keine ältere Historie. Zugangsdaten des Dexcom-Kontos eintragen (nicht das Follower-Konto).",
   dataSourcesDexcomUsername: "Dexcom-Benutzername",
   dataSourcesDexcomPassword: "Dexcom-Passwort",
+  dataSourcesGlookoTitle: "Insulinpumpe (Glooko)",
+  dataSourcesGlookoHint: "Allgemeine Insulinpumpen-Daten (Bolusgaben, tägliche Basal-/Bolus-Summen) über Glooko -- herstellerunabhängig, funktioniert unabhängig vom konkreten Pumpenmodell. Zugangsdaten des Glooko-Kontos eintragen.",
+  dataSourcesGlookoUsername: "Glooko-Benutzername/E-Mail",
+  dataSourcesGlookoPassword: "Glooko-Passwort",
   dataSourcesDexcomRegion: "Region",
   dataSourcesDexcomRegionUs: "USA",
   dataSourcesDexcomRegionOus: "Außerhalb der USA",
@@ -668,6 +678,8 @@ const en: Strings = {
   overviewExportPdf: "Export PDF",
   chatHistory: "History",
   chatNewChat: "+ New chat",
+  chatRename: "Rename",
+  chatStop: "Stop",
   chatDeleteHistory: "Delete chat history",
   chatDeleteHistoryTitle: "Delete chat history",
   chatDeleteHistoryText: "Do you really want to delete the entire chat history?",
@@ -735,7 +747,6 @@ const en: Strings = {
   llmConfigTitle: "LLM configuration",
   llmConfigProviderSection: "AI provider",
   llmConfigApiKeyLabel: "API key",
-  llmConfigApiKeyOptional: "API key (optional)",
   llmConfigApiKeyPlaceholder: "Enter API key",
   llmConfigBaseUrlLabel: "API base URL",
   llmConfigBaseUrlHint: "For a compatible endpoint instead of the default provider -- e.g. OpenRouter (https://openrouter.ai/api/v1) or a local Ollama (http://localhost:11434/v1). Leave blank for the default.",
@@ -763,6 +774,10 @@ const en: Strings = {
   dataSourcesDexcomHint: "Direct access to current CGM readings via the Dexcom Share API (the same cloud API used by the Dexcom Follow app) -- only returns up to the last 24 hours, no older history. Enter the Dexcom account's own credentials (not a follower account).",
   dataSourcesDexcomUsername: "Dexcom username",
   dataSourcesDexcomPassword: "Dexcom password",
+  dataSourcesGlookoTitle: "Insulin pump (Glooko)",
+  dataSourcesGlookoHint: "General insulin pump data (bolus doses, daily basal/bolus totals) via Glooko -- vendor-agnostic, works regardless of the specific pump model. Enter the Glooko account's credentials.",
+  dataSourcesGlookoUsername: "Glooko username/email",
+  dataSourcesGlookoPassword: "Glooko password",
   dataSourcesDexcomRegion: "Region",
   dataSourcesDexcomRegionUs: "United States",
   dataSourcesDexcomRegionOus: "Outside the US",

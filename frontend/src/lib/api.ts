@@ -14,7 +14,7 @@ export interface User {
 export interface Settings {
   systemPrompt: string | null;
   additionalInstructions: string;
-  llmProviderType: "GEMINI" | "CLAUDE" | "OPENAI" | "DEEPSEEK" | "ONEPROVIDER_FREE";
+  llmProviderType: "GEMINI" | "CLAUDE" | "OPENAI" | "DEEPSEEK";
   geminiApiKey: string;
   geminiModel: string;
   claudeApiKey: string;
@@ -25,8 +25,6 @@ export interface Settings {
   openAiModel: string;
   deepseekApiKey: string;
   deepseekModel: string;
-  oneProviderApiKey: string;
-  oneProviderModel: string;
   nightscoutApiUrl: string;
   nightscoutApiSecret: string;
   nightscoutApiAuthMethod: "NONE" | "BEARER_TOKEN" | "API_SECRET_HEADER";
@@ -46,11 +44,20 @@ export interface Settings {
   librePassword: string;
   libreRegion: string;
   libreEnabled: boolean;
+  glookoUsername: string;
+  glookoPassword: string;
+  glookoEnabled: boolean;
   nightscoutCategory: string;
   dexcomCategory: string;
   libreCategory: string;
   feelfitCategory: string;
   googleHealthCategory: string;
+  glookoCategory: string;
+}
+
+export interface SourceHealth {
+  status: "GREEN" | "YELLOW" | "RED";
+  message: string;
 }
 
 export interface McpServer {
@@ -256,6 +263,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  testGlooko: (body: { username: string; password: string }) =>
+    request<{ success: boolean; message: string }>("/glooko/test-connection", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getDataSourcesHealth: () => request<{ sources: Record<string, SourceHealth> }>("/data-sources/health"),
   googleHealthOAuthAuthorize: (redirectUri: string) =>
     request<{ authorizeUrl: string }>("/google-health/oauth/authorize", {
       method: "POST",
@@ -268,12 +281,15 @@ export const api = {
   createSession: (title: string) =>
     request<ChatSession>("/chat/sessions", { method: "POST", body: JSON.stringify({ title }) }),
   deleteSession: (id: string) => request<{ deleted: boolean }>(`/chat/sessions/${id}`, { method: "DELETE" }),
+  renameSession: (id: string, title: string) =>
+    request<ChatSession>(`/chat/sessions/${id}`, { method: "PUT", body: JSON.stringify({ title }) }),
   getMessages: (sessionId: string) => request<{ messages: ChatMessage[] }>(`/chat/sessions/${sessionId}/messages`),
   clearMessages: (sessionId: string) => request<{ cleared: boolean }>(`/chat/sessions/${sessionId}/messages`, { method: "DELETE" }),
-  sendMessage: (sessionId: string, content: string) =>
+  sendMessage: (sessionId: string, content: string, signal?: AbortSignal) =>
     request<{ userMessage: ChatMessage; assistantMessage: ChatMessage; toolActivity: { name: string; arguments: Record<string, unknown> }[] }>(`/chat/sessions/${sessionId}/messages`, {
       method: "POST",
       body: JSON.stringify({ content }),
+      signal,
     }),
   exportBackup: (password: string) =>
     request<Record<string, unknown>>("/backup/export", { method: "POST", body: JSON.stringify({ password: password || null }) }),

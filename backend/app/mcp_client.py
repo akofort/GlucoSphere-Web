@@ -33,7 +33,9 @@ _CLIENT_INFO = {"name": "glucosphere-web", "version": "0.1.0"}
 
 
 class McpClientError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass
@@ -80,7 +82,7 @@ async def _streamable_http_call(url: str, headers: dict, payload: dict, session_
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         resp = await client.post(url, json=payload, headers=req_headers)
     if resp.status_code >= 400:
-        raise McpClientError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+        raise McpClientError(f"HTTP {resp.status_code}: {resp.text[:300]}", status_code=resp.status_code)
     new_session_id = resp.headers.get("mcp-session-id", session_id)
     content_type = resp.headers.get("content-type", "")
     if "text/event-stream" in content_type:
@@ -132,7 +134,7 @@ async def _sse_session_call(url: str, headers: dict, method: str, params: dict) 
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         async with client.stream("GET", sse_url, headers={**headers, "accept": "text/event-stream"}) as resp:
             if resp.status_code >= 400:
-                raise McpClientError(f"SSE-Verbindung fehlgeschlagen: HTTP {resp.status_code}")
+                raise McpClientError(f"SSE-Verbindung fehlgeschlagen: HTTP {resp.status_code}", status_code=resp.status_code)
             endpoint_path: str | None = None
             request_id = 1
             async for raw_event in _iter_sse_events(resp):
@@ -192,7 +194,7 @@ async def _openapi_spec(url: str, headers: dict) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         resp = await client.get(f"{base}/openapi.json", headers=headers)
     if resp.status_code >= 400:
-        raise McpClientError(f"HTTP {resp.status_code} beim Laden von openapi.json")
+        raise McpClientError(f"HTTP {resp.status_code} beim Laden von openapi.json", status_code=resp.status_code)
     return resp.json()
 
 
@@ -230,7 +232,7 @@ async def _openapi_call_tool(url: str, headers: dict, name: str, arguments: dict
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         resp = await client.post(f"{base}/{name}", json=arguments, headers={**headers, "content-type": "application/json"})
     if resp.status_code >= 400:
-        raise McpClientError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+        raise McpClientError(f"HTTP {resp.status_code}: {resp.text[:500]}", status_code=resp.status_code)
     try:
         return json_module.dumps(resp.json(), ensure_ascii=False)
     except ValueError:

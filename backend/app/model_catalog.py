@@ -9,7 +9,6 @@ AUTO_MODEL_ID = "auto"
 
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com/v1"
-ONEPROVIDER_GATEWAY_BASE_URL = "https://api.oneprovider.dev/v1"
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 PROVIDER_LABELS = {
@@ -17,7 +16,6 @@ PROVIDER_LABELS = {
     "CLAUDE": "Anthropic Claude API",
     "OPENAI": "OpenAI API / OpenRouter",
     "DEEPSEEK": "DeepSeek API (empfohlen)",
-    "ONEPROVIDER_FREE": "OneProvider (eigener Key oder kostenloses Freikontingent)",
 }
 
 
@@ -46,17 +44,11 @@ _DEEPSEEK = [
     ModelOption("deepseek-v4-flash", "DeepSeek V4 Flash (schnell, empfohlen)", "€"),
     ModelOption("deepseek-v4-pro", "DeepSeek V4 Pro (Flaggschiff, Tiefenanalyse)", "€€"),
 ]
-_ONEPROVIDER = [
-    ModelOption("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (schnell, Standard)", "€"),
-    ModelOption("claude-opus-5", "Claude Opus 5 (Flaggschiff)", "€€€"),
-]
-
 _CATALOG: dict[str, list[ModelOption]] = {
     "GEMINI": _GEMINI,
     "CLAUDE": _CLAUDE,
     "OPENAI": _OPENAI,
     "DEEPSEEK": _DEEPSEEK,
-    "ONEPROVIDER_FREE": _ONEPROVIDER,
 }
 
 

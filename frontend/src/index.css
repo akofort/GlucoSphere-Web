@@ -594,6 +594,20 @@ details.card summary:first-child {
   font-weight: 600;
 }
 
+.chat-input-row .chat-new-btn {
+  padding: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 1.4rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.chat-input-row .chat-stop-btn {
+  background: var(--red-text);
+}
+
 .empty-state {
   text-align: center;
   color: var(--text-muted);

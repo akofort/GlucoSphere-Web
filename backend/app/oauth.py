@@ -118,6 +118,13 @@ def _parse_token_response(resp: httpx.Response) -> dict:
 def _store_tokens(server_id: str, data: dict, fallback_refresh_token: str = "") -> None:
     access_token = data.get("access_token")
     if not access_token:
+        # Withings throttles rapid refresh calls with `{"wait_seconds": N}` instead of a normal
+        # OAuth2 error body (observed live) -- worth its own message so a rate limit doesn't read
+        # like a broken integration.
+        if isinstance(data.get("wait_seconds"), (int, float)):
+            raise OAuthError(
+                f"Anbieter drosselt Token-Anfragen -- bitte {int(data['wait_seconds'])}s warten und erneut versuchen."
+            )
         raise OAuthError(f"Token-Antwort ohne access_token: {data}")
     refresh_token = data.get("refresh_token") or fallback_refresh_token
     expires_in = data.get("expires_in")
@@ -125,17 +132,24 @@ def _store_tokens(server_id: str, data: dict, fallback_refresh_token: str = "") 
     db.set_mcp_oauth_tokens(server_id, access_token, refresh_token, expires_at)
 
 
-async def get_valid_access_token(server_id: str) -> str:
+async def get_valid_access_token(server_id: str, force_refresh: bool = False) -> str:
     """Returns a usable access token for `server_id`, refreshing first if it's expired (or about
     to expire) and a refresh token is available. Used by tools.py/mcp_client.py right before a
     call -- OAuth2 auth then behaves exactly like a manually entered bearer token from the
-    caller's point of view."""
+    caller's point of view.
+
+    `force_refresh=True` skips the locally cached expiry check entirely and always refreshes --
+    needed because that cached expiry is only as good as the `expires_in` the provider reported
+    at the last refresh, which does not always match when the provider actually invalidates the
+    token (observed live with Withings: a token still ~2h from its stored expiry was already
+    rejected as invalid). Callers should retry once with force_refresh=True after any 401 from
+    the actual API/MCP call, rather than trusting the cached expiry alone."""
     server = db.get_mcp_server_raw(server_id)
     if server is None:
         raise OAuthError("Server nicht gefunden.")
     if not server.get("oauthAccessToken"):
         raise OAuthError("Nicht angemeldet -- bitte zuerst 'Login mit Provider' ausführen.")
     expires_at = server.get("oauthExpiresAt") or 0
-    if expires_at and expires_at - _TOKEN_REFRESH_MARGIN_SECONDS < int(time.time()):
+    if force_refresh or (expires_at and expires_at - _TOKEN_REFRESH_MARGIN_SECONDS < int(time.time())):
         return await refresh_access_token(server)
     return server["oauthAccessToken"]

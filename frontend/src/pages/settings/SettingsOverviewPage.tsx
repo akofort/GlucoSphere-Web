@@ -9,7 +9,6 @@ const PROVIDER_KEY_FIELD: Record<string, keyof Settings> = {
   CLAUDE: "claudeApiKey",
   OPENAI: "openAiApiKey",
   DEEPSEEK: "deepseekApiKey",
-  ONEPROVIDER_FREE: "oneProviderApiKey",
 };
 
 export default function SettingsOverviewPage() {
@@ -34,7 +33,6 @@ export default function SettingsOverviewPage() {
   const llmSubtitle = (() => {
     if (!settings) return "";
     const providerLabel = providers.find((p) => p.type === settings.llmProviderType)?.label ?? settings.llmProviderType;
-    if (settings.llmProviderType === "ONEPROVIDER_FREE") return providerLabel;
     const key = settings[PROVIDER_KEY_FIELD[settings.llmProviderType]];
     return key ? t.settingsProviderActive(providerLabel) : t.settingsNoApiKey;
   })();

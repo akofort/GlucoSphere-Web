@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import auth, backup, dashboard_sources, db, dexcom_share, feelfit, google_health, librelinkup, llm_providers, mcp_client, model_catalog, nightscout, oauth, prompts, tools
+from . import auth, backup, dashboard_sources, db, dexcom_share, feelfit, glooko, google_health, librelinkup, llm_providers, mcp_client, model_catalog, nightscout, oauth, prompts, tools
 
 log = logging.getLogger("glucosphere")
 
@@ -272,14 +272,12 @@ _KEY_FIELD = {
     "CLAUDE": "claudeApiKey",
     "OPENAI": "openAiApiKey",
     "DEEPSEEK": "deepseekApiKey",
-    "ONEPROVIDER_FREE": "oneProviderApiKey",
 }
 _MODEL_FIELD = {
     "GEMINI": "geminiModel",
     "CLAUDE": "claudeModel",
     "OPENAI": "openAiModel",
     "DEEPSEEK": "deepseekModel",
-    "ONEPROVIDER_FREE": "oneProviderModel",
 }
 
 
@@ -344,6 +342,17 @@ async def test_librelinkup(req: LibreTestRequest, _: dict = Depends(require_admi
     return {"success": ok, "message": message}
 
 
+class GlookoTestRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/glooko/test-connection")
+async def test_glooko(req: GlookoTestRequest, _: dict = Depends(require_admin)) -> dict:
+    ok, message = await glooko.test_connection(req.username, req.password)
+    return {"success": ok, "message": message}
+
+
 # ---------------------------------------------------------------------------
 # Google Health API (native OAuth2 -- see google_health.py)
 # ---------------------------------------------------------------------------
@@ -402,16 +411,20 @@ async def google_health_oauth_callback(code: str | None = None, state: str | Non
     return RedirectResponse(f"{target}?googleHealth=success")
 
 
-@app.post("/api/google-health/test-connection")
-async def test_google_health(_: dict = Depends(require_admin)) -> dict:
-    settings = db.load_settings()
+async def _check_google_health(settings: dict) -> tuple[bool, str]:
     try:
         access_token = await google_health.get_valid_access_token(settings, _save_google_health_tokens)
         now = int(time.time() * 1000)
         readings = await google_health.fetch_blood_glucose(access_token, now - 30 * 24 * 60 * 60 * 1000, now)
-        return {"success": True, "message": f"Verbindung erfolgreich -- {len(readings)} Messungen in den letzten 30 Tagen gefunden."}
+        return True, f"Verbindung erfolgreich -- {len(readings)} Messungen in den letzten 30 Tagen gefunden."
     except google_health.GoogleHealthError as exc:
-        return {"success": False, "message": str(exc)}
+        return False, str(exc)
+
+
+@app.post("/api/google-health/test-connection")
+async def test_google_health(_: dict = Depends(require_admin)) -> dict:
+    ok, message = await _check_google_health(db.load_settings())
+    return {"success": ok, "message": message}
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +708,18 @@ def remove_session(session_id: str, user: dict = Depends(current_user)) -> dict:
     return {"deleted": True}
 
 
+class RenameSessionRequest(BaseModel):
+    title: str
+
+
+@app.put("/api/chat/sessions/{session_id}")
+def rename_session(session_id: str, req: RenameSessionRequest, user: dict = Depends(current_user)) -> dict:
+    try:
+        return db.rename_session(session_id, user["id"], req.title.strip() or "Chat")
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+
+
 @app.get("/api/chat/sessions/{session_id}/messages")
 def get_messages(session_id: str, user: dict = Depends(current_user)) -> dict:
     try:
@@ -726,8 +751,7 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
     provider_type = settings.get("llmProviderType")
     key_field = _KEY_FIELD.get(provider_type)
     if not key_field or not settings.get(key_field):
-        if provider_type != "ONEPROVIDER_FREE":
-            raise HTTPException(400, f"Kein API-Key für {provider_type} hinterlegt -- bitte in der LLM-Konfiguration eintragen.")
+        raise HTTPException(400, f"Kein API-Key für {provider_type} hinterlegt -- bitte in der LLM-Konfiguration eintragen.")
 
     try:
         user_message = db.add_message(session_id, user["id"], "user", req.content)
@@ -866,6 +890,82 @@ async def test_mcp_server(req: McpTestRequest, _: dict = Depends(require_admin))
             return {"success": False, "message": str(exc)}
     ok, message = await mcp_client.test_connection(server)
     return {"success": ok, "message": message}
+
+
+async def _check_mcp_server(server: dict) -> tuple[bool, str]:
+    try:
+        resolved = await tools.resolve_server_auth(server)
+        found = await mcp_client.list_tools(resolved)
+    except mcp_client.McpClientError as exc:
+        if server.get("authMethod") != "OAUTH2" or exc.status_code != 401:
+            return False, str(exc)
+        # Cached token looked valid (expiry not yet reached) but the provider rejected it anyway
+        # -- force a real refresh and retry once, same as tools.py's tool-call retry.
+        try:
+            resolved = await tools.resolve_server_auth(server, force_refresh=True)
+            found = await mcp_client.list_tools(resolved)
+        except Exception as exc2:  # noqa: BLE001 -- surfaced as a failed health check, not a 500
+            return False, str(exc2)
+    except Exception as exc:  # noqa: BLE001 -- surfaced as a failed health check, not a 500
+        return False, str(exc)
+    names = ", ".join(t.name for t in found[:5])
+    suffix = f" ({names}{', …' if len(found) > 5 else ''})" if found else ""
+    return True, f"Verbindung erfolgreich -- {len(found)} Tool(s) gefunden{suffix}."
+
+
+@app.get("/api/data-sources/health")
+async def data_sources_health(_: dict = Depends(require_admin)) -> dict:
+    """Runs every configured source's test-connection check in parallel (see individual
+    /api/*/test-connection endpoints above) and classifies each as GREEN (reachable now),
+    YELLOW (unreachable now but reachable on some earlier check -- e.g. a stale token or a
+    temporary outage), or RED (never successfully reached)."""
+    settings = db.load_settings()
+    mcp_servers = db.list_mcp_servers()
+    previously_ok = db.get_source_health()
+
+    checks: list[tuple[str, Any]] = []
+    if settings.get("nightscoutApiUrl"):
+        checks.append(("nightscout", nightscout.test_connection(
+            settings["nightscoutApiUrl"], settings["nightscoutApiAuthMethod"], settings["nightscoutApiSecret"],
+        )))
+    if settings.get("dexcomUsername"):
+        checks.append(("dexcom", dexcom_share.test_connection(
+            settings["dexcomUsername"], settings["dexcomPassword"], settings.get("dexcomRegion", "US"),
+        )))
+    if settings.get("libreEmail"):
+        checks.append(("librelinkup", librelinkup.test_connection(
+            settings["libreEmail"], settings["librePassword"], settings.get("libreRegion", "US"),
+        )))
+    if settings.get("feelfitEmail"):
+        checks.append(("feelfit", feelfit.test_connection(settings["feelfitEmail"], settings["feelfitPassword"])))
+    if settings.get("googleHealthRefreshToken"):
+        checks.append(("google_health", _check_google_health(settings)))
+    if settings.get("glookoUsername"):
+        checks.append(("glooko", glooko.test_connection(settings["glookoUsername"], settings["glookoPassword"])))
+    for server in mcp_servers:
+        checks.append((server["id"], _check_mcp_server(server)))
+
+    async def run_one(source_id: str, coro: Any) -> tuple[str, bool, str]:
+        try:
+            ok, message = await coro
+        except Exception as exc:  # noqa: BLE001 -- a source blowing up must not break the others
+            ok, message = False, str(exc)
+        return source_id, ok, message
+
+    results = await asyncio.gather(*(run_one(sid, coro) for sid, coro in checks))
+
+    now = int(time.time() * 1000)
+    sources: dict[str, dict] = {}
+    for source_id, ok, message in results:
+        if ok:
+            db.mark_source_ok(source_id, now)
+            status = "GREEN"
+        elif source_id in previously_ok:
+            status = "YELLOW"
+        else:
+            status = "RED"
+        sources[source_id] = {"status": status, "message": message}
+    return {"sources": sources}
 
 
 @app.get("/api/mcp-servers/{server_id}/tools")

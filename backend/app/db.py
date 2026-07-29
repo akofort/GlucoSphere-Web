@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS llm_request_log (
     detail TEXT,
     created_at INTEGER NOT NULL
 );
+
+-- One row per data source (native API id or MCP server id) that has ever passed a health check /
+-- test-connection -- lets the Datenquellen page show "yellow" (reachable before, failing now) vs.
+-- "red" (never worked) instead of just green/red.
+CREATE TABLE IF NOT EXISTS source_health (
+    source_id TEXT PRIMARY KEY,
+    last_ok_at INTEGER NOT NULL
+);
 """
 
 _MAX_LOG_ENTRIES = 200
@@ -112,8 +120,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "openAiModel": "auto",
     "deepseekApiKey": "",
     "deepseekModel": "auto",
-    "oneProviderApiKey": "",
-    "oneProviderModel": "auto",
     "nightscoutApiUrl": "",
     "nightscoutApiSecret": "",
     "nightscoutApiAuthMethod": "API_SECRET_HEADER",
@@ -138,6 +144,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "librePassword": "",
     "libreRegion": "US",
     "libreEnabled": True,
+    # Glooko aggregates data from many pump brands -- deliberately vendor-agnostic, see glooko.py.
+    "glookoUsername": "",
+    "glookoPassword": "",
+    "glookoEnabled": True,
     # Purely organizational tags for the native-API cards on Datenquellen (mirrors the category an
     # MCP server is tagged with) -- user-editable, since e.g. Google Health is primarily an
     # activity/sleep hub with glucose only incidentally synced in from another app, not really a
@@ -147,6 +157,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "libreCategory": "GLUCOSE_TREATMENTS",
     "feelfitCategory": "BODY_METRICS",
     "googleHealthCategory": "ACTIVITY",
+    "glookoCategory": "GLUCOSE_TREATMENTS",
 }
 
 
@@ -296,6 +307,32 @@ def _session_belongs_to(conn: sqlite3.Connection, session_id: str, user_id: str)
 def delete_session(session_id: str, user_id: str) -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM chat_sessions WHERE id = ? AND user_id = ?", (session_id, user_id))
+
+
+def rename_session(session_id: str, user_id: str, title: str) -> dict[str, Any]:
+    with get_conn() as conn:
+        if not _session_belongs_to(conn, session_id, user_id):
+            raise PermissionError("Session gehört nicht diesem Benutzer.")
+        conn.execute("UPDATE chat_sessions SET title = ? WHERE id = ?", (title, session_id))
+        row = conn.execute(
+            "SELECT id, title, created_at FROM chat_sessions WHERE id = ?", (session_id,),
+        ).fetchone()
+    return {"id": row["id"], "title": row["title"], "createdAt": row["created_at"]}
+
+
+def mark_source_ok(source_id: str, when_millis: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO source_health (source_id, last_ok_at) VALUES (?, ?) "
+            "ON CONFLICT(source_id) DO UPDATE SET last_ok_at = excluded.last_ok_at",
+            (source_id, when_millis),
+        )
+
+
+def get_source_health() -> dict[str, int]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT source_id, last_ok_at FROM source_health").fetchall()
+    return {r["source_id"]: r["last_ok_at"] for r in rows}
 
 
 def add_message(

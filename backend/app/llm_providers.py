@@ -246,15 +246,6 @@ async def chat(
             settings["claudeApiKey"], settings.get("claudeBaseUrl") or catalog.DEFAULT_CLAUDE_BASE_URL,
             model, system_prompt, messages, tools,
         )
-    if provider_type == "ONEPROVIDER_FREE":
-        model = _resolved_model(provider_type, settings.get("oneProviderModel", ""), purpose)
-        api_key = settings.get("oneProviderApiKey") or ""
-        if not api_key:
-            raise ProviderError(
-                "Kein OneProvider-Key hinterlegt -- das App-Freikontingent aus der Android-App "
-                "steht dieser Web-Version nicht zur Verfügung, bitte eigenen Key eintragen."
-            )
-        return await _chat_anthropic(api_key, catalog.ONEPROVIDER_GATEWAY_BASE_URL, model, system_prompt, messages, tools)
     if provider_type == "OPENAI":
         model = _resolved_model(provider_type, settings.get("openAiModel", ""), purpose)
         return await _chat_openai_compatible(

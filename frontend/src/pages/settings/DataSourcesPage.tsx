@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import SettingsScaffold from "../../components/SettingsScaffold";
 import McpServerEditor from "../../components/McpServerEditor";
-import { api, type McpServer, type McpTool, type Settings } from "../../lib/api";
+import { api, type McpServer, type McpTool, type Settings, type SourceHealth } from "../../lib/api";
 import { useLanguage } from "../../lib/LanguageContext";
 import type { Strings } from "../../lib/strings";
 
@@ -15,7 +15,18 @@ function categoryLabelsFor(t: Strings): Record<string, string> {
   };
 }
 
-function McpServerRow({ server, onChanged, t }: { server: McpServer; onChanged: () => void; t: Strings }) {
+// GREEN: reachable right now. YELLOW: unreachable now but reachable on some earlier check (a
+// stale token or a temporary outage, not a dead source). RED: never successfully reached.
+function HealthDot({ sourceId, health }: { sourceId: string; health: Record<string, SourceHealth> }) {
+  const h = health[sourceId];
+  if (!h) return null;
+  const icon = h.status === "GREEN" ? "🟢" : h.status === "YELLOW" ? "🟡" : "🔴";
+  return <span title={h.message}>{icon}</span>;
+}
+
+function McpServerRow({
+  server, onChanged, t, health,
+}: { server: McpServer; onChanged: () => void; t: Strings; health: Record<string, SourceHealth> }) {
   const [editing, setEditing] = useState(false);
   const [tools, setTools] = useState<McpTool[] | null>(null);
   const [toolsError, setToolsError] = useState<string | null>(null);
@@ -70,6 +81,7 @@ function McpServerRow({ server, onChanged, t }: { server: McpServer; onChanged: 
     <details className="card">
       <summary>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <HealthDot sourceId={server.id} health={health} />
           <h2 style={{ fontSize: "1rem" }}>{server.name}</h2>
           <span className="category-tag">{categoryLabels[server.category] ?? server.category}</span>
         </div>
@@ -156,6 +168,16 @@ export default function DataSourcesPage() {
   const [libreTesting, setLibreTesting] = useState(false);
   const [libreSaving, setLibreSaving] = useState(false);
 
+  const [glookoUsername, setGlookoUsername] = useState("");
+  const [glookoPassword, setGlookoPassword] = useState("");
+  const [glookoEnabled, setGlookoEnabled] = useState(true);
+  const [glookoCategory, setGlookoCategory] = useState("GLUCOSE_TREATMENTS");
+  const [glookoTestResult, setGlookoTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [glookoTesting, setGlookoTesting] = useState(false);
+  const [glookoSaving, setGlookoSaving] = useState(false);
+
+  const [health, setHealth] = useState<Record<string, SourceHealth>>({});
+
   const [googleHealthClientId, setGoogleHealthClientId] = useState("");
   const [googleHealthClientSecret, setGoogleHealthClientSecret] = useState("");
   const [googleHealthEnabled, setGoogleHealthEnabled] = useState(true);
@@ -201,7 +223,16 @@ export default function DataSourcesPage() {
       setLibrePassword(s.librePassword);
       setLibreEnabled(s.libreEnabled);
       setLibreCategory(s.libreCategory);
+      setGlookoUsername(s.glookoUsername);
+      setGlookoPassword(s.glookoPassword);
+      setGlookoEnabled(s.glookoEnabled);
+      setGlookoCategory(s.glookoCategory);
     });
+    // Auto health-check on page load: fires in parallel with the settings/servers fetches above,
+    // and can take a while (it logs into every configured source) -- errors are caught inside
+    // getDataSourcesHealth's own per-source handling on the backend, never surfaced here as a
+    // page-level error, since an unreachable source is exactly what this is meant to show.
+    api.getDataSourcesHealth().then((r) => setHealth(r.sources));
     loadServers();
   }, []);
 
@@ -385,6 +416,35 @@ export default function DataSourcesPage() {
     await api.updateSettings({ libreEnabled: next });
   };
 
+  const testGlooko = async () => {
+    setGlookoTesting(true);
+    setGlookoTestResult(null);
+    try {
+      const res = await api.testGlooko({ username: glookoUsername, password: glookoPassword });
+      setGlookoTestResult({ ok: res.success, message: res.message });
+    } catch (err) {
+      setGlookoTestResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setGlookoTesting(false);
+    }
+  };
+
+  const saveGlooko = async () => {
+    setGlookoSaving(true);
+    try {
+      const updated = await api.updateSettings({ glookoUsername, glookoPassword, glookoEnabled, glookoCategory });
+      setSettings(updated);
+    } finally {
+      setGlookoSaving(false);
+    }
+  };
+
+  const toggleGlookoEnabled = async () => {
+    const next = !glookoEnabled;
+    setGlookoEnabled(next);
+    await api.updateSettings({ glookoEnabled: next });
+  };
+
   if (!settings) return <SettingsScaffold title={t.dataSourcesTitle}>{t.loading}</SettingsScaffold>;
 
   return (
@@ -418,6 +478,7 @@ export default function DataSourcesPage() {
       <details className="card">
         <summary>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <HealthDot sourceId="nightscout" health={health} />
             <h2>{t.dataSourcesNightscoutTitle}</h2>
             <span className="category-tag">{categoryLabels[category] ?? category}</span>
           </div>
@@ -467,6 +528,7 @@ export default function DataSourcesPage() {
       <details className="card">
         <summary>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <HealthDot sourceId="dexcom" health={health} />
             <h2>{t.dataSourcesDexcomTitle}</h2>
             <span className="category-tag">{categoryLabels[dexcomCategory] ?? dexcomCategory}</span>
           </div>
@@ -515,6 +577,7 @@ export default function DataSourcesPage() {
       <details className="card">
         <summary>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <HealthDot sourceId="librelinkup" health={health} />
             <h2>{t.dataSourcesLibreTitle}</h2>
             <span className="category-tag">{categoryLabels[libreCategory] ?? libreCategory}</span>
           </div>
@@ -556,6 +619,7 @@ export default function DataSourcesPage() {
       <details className="card">
         <summary>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <HealthDot sourceId="feelfit" health={health} />
             <h2>{t.dataSourcesFeelfitTitle}</h2>
             <span className="category-tag">{categoryLabels[feelfitCategory] ?? feelfitCategory}</span>
           </div>
@@ -608,6 +672,7 @@ export default function DataSourcesPage() {
       <details className="card">
         <summary>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <HealthDot sourceId="google_health" health={health} />
             <h2>{t.dataSourcesGoogleHealthTitle}</h2>
             <span className="category-tag">{categoryLabels[googleHealthCategory] ?? googleHealthCategory}</span>
           </div>
@@ -668,6 +733,48 @@ export default function DataSourcesPage() {
       </details>
 
       <details className="card">
+        <summary>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <HealthDot sourceId="glooko" health={health} />
+            <h2>{t.dataSourcesGlookoTitle}</h2>
+            <span className="category-tag">{categoryLabels[glookoCategory] ?? glookoCategory}</span>
+          </div>
+          <label className="inline-toggle" onClick={(e) => e.stopPropagation()}>
+            <input type="checkbox" checked={glookoEnabled} onChange={toggleGlookoEnabled} />
+            {glookoEnabled ? t.dataSourcesActive : t.dataSourcesInactive}
+          </label>
+        </summary>
+        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{t.dataSourcesGlookoHint}</p>
+        <div className="field">
+          <label>{t.dataSourcesGlookoUsername}</label>
+          <input type="text" value={glookoUsername} onChange={(e) => { setGlookoUsername(e.target.value); setGlookoTestResult(null); }} />
+        </div>
+        <div className="field">
+          <label>{t.dataSourcesGlookoPassword}</label>
+          <input type="password" value={glookoPassword} onChange={(e) => { setGlookoPassword(e.target.value); setGlookoTestResult(null); }} />
+        </div>
+        <div className="field">
+          <label>{t.dataSourcesCategoryLabel}</label>
+          <select value={glookoCategory} onChange={(e) => setGlookoCategory(e.target.value)}>
+            {Object.entries(categoryLabels).map(([id, label]) => (
+              <option key={id} value={id}>{label}</option>
+            ))}
+          </select>
+        </div>
+
+        {glookoTestResult && <div className={`test-result ${glookoTestResult.ok ? "ok" : "error"}`}>{glookoTestResult.message}</div>}
+
+        <div className="btn-row">
+          <button className="btn" onClick={testGlooko} disabled={glookoTesting || !glookoUsername.trim() || !glookoPassword.trim()}>
+            {glookoTesting ? t.genericTesting : t.dataSourcesTestConnection}
+          </button>
+          <button className="btn primary" onClick={saveGlooko} disabled={glookoSaving}>
+            {glookoSaving ? t.genericSaving : t.genericSave}
+          </button>
+        </div>
+      </details>
+
+      <details className="card">
         <summary><h2>{t.dataSourcesMcpTitle(servers.length)}</h2></summary>
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{t.dataSourcesMcpHint}</p>
         {!addingServer && (
@@ -687,7 +794,7 @@ export default function DataSourcesPage() {
         )}
 
         {servers.map((s) => (
-          <McpServerRow key={s.id} server={s} onChanged={loadServers} t={t} />
+          <McpServerRow key={s.id} server={s} onChanged={loadServers} t={t} health={health} />
         ))}
       </details>
     </SettingsScaffold>

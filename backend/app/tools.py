@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from . import db, dexcom_share, feelfit, google_health, librelinkup, mcp_client, nightscout, oauth
+from . import db, dexcom_share, feelfit, glooko, google_health, librelinkup, mcp_client, nightscout, oauth
 
 NIGHTSCOUT_TOOL_NAME = "get_glucose_entries"
 FEELFIT_TOOL_NAME = "get_body_composition_history"
@@ -21,6 +21,7 @@ GOOGLE_HEALTH_RESTING_HEART_RATE_TOOL_NAME = "get_google_health_resting_heart_ra
 GOOGLE_HEALTH_HRV_TOOL_NAME = "get_google_health_hrv"
 DEXCOM_TOOL_NAME = "get_dexcom_glucose_entries"
 LIBRELINKUP_TOOL_NAME = "get_librelinkup_glucose_entries"
+GLOOKO_TOOL_NAME = "get_insulin_pump_data"
 
 _NIGHTSCOUT_SCHEMA = {
     "type": "object",
@@ -133,6 +134,15 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
             "inputSchema": _FEELFIT_SCHEMA,
             "_source": "librelinkup",
         })
+    if settings.get("glookoUsername") and settings.get("glookoEnabled", True):
+        tools.append({
+            "name": GLOOKO_TOOL_NAME,
+            "description": "Ruft allgemeine Insulinpumpen-Daten (Bolusgaben mit Zeitpunkt/Einheiten, tägliche "
+                           "Basal-/Bolus-/Gesamt-Insulinmenge) für einen Zeitraum ab -- herstellerunabhängig, "
+                           "unabhängig vom konkreten Pumpenmodell.",
+            "inputSchema": _GOOGLE_HEALTH_SCHEMA,
+            "_source": "glooko",
+        })
     for server in mcp_servers:
         if not server.get("enabled"):
             continue
@@ -146,21 +156,37 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
     return tools
 
 
-async def resolve_server_auth(server: dict) -> dict:
+async def resolve_server_auth(server: dict, force_refresh: bool = False) -> dict:
     """OAuth2 servers store a client id/secret/endpoints, not a manually entered token --
     resolves (refreshing if needed) a current access token and returns a server dict shaped like
-    a plain BEARER_TOKEN server, so mcp_client.py never needs to know OAuth2 exists."""
+    a plain BEARER_TOKEN server, so mcp_client.py never needs to know OAuth2 exists.
+
+    `force_refresh` bypasses the cached-expiry check (see oauth.get_valid_access_token) -- used
+    by the retry-on-401 helpers below, since a provider can invalidate a token well before the
+    locally cached expiry (observed live with Withings)."""
     if server.get("authMethod") != "OAUTH2":
         return server
-    token = await oauth.get_valid_access_token(server["id"])
+    token = await oauth.get_valid_access_token(server["id"], force_refresh=force_refresh)
     return {**server, "authMethod": "BEARER_TOKEN", "token": token}
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    return isinstance(exc, mcp_client.McpClientError) and exc.status_code == 401
 
 
 async def _safe_list_tools(server: dict) -> list[mcp_client.McpTool]:
     try:
         resolved = await resolve_server_auth(server)
         return await mcp_client.list_tools(resolved)
-    except Exception:  # noqa: BLE001 -- one unreachable/unauthenticated server must not break the whole tool list
+    except Exception as exc:  # noqa: BLE001 -- one unreachable/unauthenticated server must not break the whole tool list
+        if server.get("authMethod") == "OAUTH2" and _is_auth_error(exc):
+            # The cached token looked valid (expiry not yet reached) but the provider rejected it
+            # anyway -- force a real refresh and retry once before giving up.
+            try:
+                resolved = await resolve_server_auth(server, force_refresh=True)
+                return await mcp_client.list_tools(resolved)
+            except Exception:  # noqa: BLE001
+                return []
         return []
 
 
@@ -189,6 +215,8 @@ async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp
         return await _execute_dexcom(settings)
     if name == LIBRELINKUP_TOOL_NAME:
         return await _execute_librelinkup(settings)
+    if name == GLOOKO_TOOL_NAME:
+        return await _execute_glooko(arguments, settings)
     try:
         for server in mcp_servers:
             if not server.get("enabled"):
@@ -196,7 +224,15 @@ async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp
             tools = await _safe_list_tools(server)
             if any(t.name == name for t in tools):
                 resolved = await resolve_server_auth(server)
-                return await mcp_client.call_tool(resolved, name, arguments)
+                try:
+                    return await mcp_client.call_tool(resolved, name, arguments)
+                except Exception as exc:  # noqa: BLE001
+                    if server.get("authMethod") != "OAUTH2" or not _is_auth_error(exc):
+                        raise
+                    # Same stale-cached-expiry case as _safe_list_tools -- force a refresh and
+                    # retry the actual tool call once before surfacing the failure.
+                    resolved = await resolve_server_auth(server, force_refresh=True)
+                    return await mcp_client.call_tool(resolved, name, arguments)
         return f"Fehler: Tool '{name}' wurde bei keinem aktiven Server gefunden."
     except Exception as exc:  # noqa: BLE001 -- see docstring
         return f"Fehler beim Aufruf von '{name}': {exc}"
@@ -419,4 +455,41 @@ async def _execute_librelinkup(settings: dict) -> str:
         f"{time.strftime('%d.%m. %H:%M', time.localtime(r.date_millis / 1000))}: {r.mg_dl:.0f} mg/dL"
         for r in readings
     ]
+    return "\n".join(lines)
+
+
+async def _execute_glooko(arguments: dict[str, Any], settings: dict) -> str:
+    now = int(time.time() * 1000)
+    from_millis = int(arguments.get("fromEpochMillis") or now - 7 * 24 * 60 * 60 * 1000)
+    to_millis = int(arguments.get("toEpochMillis") or now)
+    try:
+        boluses, daily = await glooko.fetch_pump_data(settings["glookoUsername"], settings["glookoPassword"], from_millis, to_millis)
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Insulinpumpen-Daten: {exc}"
+    if not boluses and not daily:
+        return "Keine Insulinpumpen-Daten im angefragten Zeitraum gefunden."
+    lines = []
+    if daily:
+        lines.append("Tägliche Insulinmenge:")
+        for d in daily:
+            date = time.strftime("%d.%m.%Y", time.gmtime(d.date_millis / 1000))
+            parts = [date]
+            if d.basal_units is not None:
+                parts.append(f"Basal {d.basal_units:.1f} E")
+            if d.bolus_units is not None:
+                parts.append(f"Bolus {d.bolus_units:.1f} E")
+            if d.total_units is not None:
+                parts.append(f"gesamt {d.total_units:.1f} E")
+            lines.append(f"{parts[0]}: {', '.join(parts[1:])}" if len(parts) > 1 else parts[0])
+    if boluses:
+        lines.append("Bolusgaben:")
+        for b in boluses:
+            when = time.strftime("%d.%m. %H:%M", time.localtime(b.date_millis / 1000))
+            parts = [when]
+            if b.delivered_units is not None:
+                parts.append(f"{b.delivered_units:.2f} E")
+            if b.carbs_g is not None and b.carbs_g > 0:
+                parts.append(f"{b.carbs_g:.0f} g KH")
+            parts.append("manuell" if b.is_manual else "automatisch/algorithmisch")
+            lines.append(": ".join([parts[0], ", ".join(parts[1:])]))
     return "\n".join(lines)

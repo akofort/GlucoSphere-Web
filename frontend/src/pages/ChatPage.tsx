@@ -16,6 +16,12 @@ function formatTime(ms: number, locale: string): string {
   return new Date(ms).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" });
 }
 
+function defaultChatTitle(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `Chat-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function ChatPage() {
   const { t, language } = useLanguage();
   const locale = language === "DE" ? "de-DE" : "en-US";
@@ -30,8 +36,11 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastToolActivity, setLastToolActivity] = useState<string[]>([]);
   const [speakingId, setSpeakingId] = useState<number | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renamingValue, setRenamingValue] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const loadSessions = async () => {
     const { sessions: list } = await api.listSessions();
@@ -51,7 +60,7 @@ export default function ChatPage() {
       const list = await loadSessions();
       let id = list[0]?.id;
       if (!id) {
-        const created = await api.createSession(t.chatUntitled);
+        const created = await api.createSession(defaultChatTitle());
         id = created.id;
         await loadSessions();
       }
@@ -87,26 +96,52 @@ export default function ChatPage() {
     setError(null);
     setLastToolActivity([]);
     setSending(true);
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setMessages((prev) => [
       ...prev,
       { id: -1, sessionId: targetSessionId, role: "user", content, createdAt: Date.now() },
     ]);
     try {
-      const { toolActivity } = await api.sendMessage(targetSessionId, content);
+      const { toolActivity } = await api.sendMessage(targetSessionId, content, controller.signal);
       setLastToolActivity(toolActivity.map((t) => t.name));
       const { messages: msgs } = await api.getMessages(targetSessionId);
       setMessages(msgs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Aborted by the user via the stop button -- not a real error, the backend call (and any
+      // partial assistant work behind it) was cut off; nothing new to show, just stop "loading".
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setSending(false);
+      abortControllerRef.current = null;
     }
   };
 
+  const stopGenerating = () => {
+    abortControllerRef.current?.abort();
+  };
+
   const startNewChat = async () => {
-    const created = await api.createSession(t.chatUntitled);
+    const created = await api.createSession(defaultChatTitle());
     await loadSessions();
     await openSession(created.id);
+  };
+
+  const startRename = (s: ChatSession, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(s.id);
+    setRenamingValue(s.title || defaultChatTitle());
+  };
+
+  const commitRename = async () => {
+    const id = renamingId;
+    const title = renamingValue.trim();
+    setRenamingId(null);
+    if (!id || !title) return;
+    await api.renameSession(id, title);
+    await loadSessions();
   };
 
   const removeSession = async (id: string, e: React.MouseEvent) => {
@@ -178,16 +213,38 @@ export default function ChatPage() {
               {t.chatNewChat}
             </div>
             {sessions.length === 0 && <div style={{ padding: 14, color: "var(--text-muted)", fontSize: "0.85rem" }}>{t.chatNoSessions}</div>}
-            {sessions.map((s) => (
-              <div
-                key={s.id}
-                className={`session-row ${s.id === sessionId ? "active" : ""}`}
-                onClick={() => openSession(s.id)}
-              >
-                <span>{s.title || t.chatUntitled}</span>
-                <button onClick={(e) => removeSession(s.id, e)}>🗑️</button>
-              </div>
-            ))}
+            {sessions.map((s) =>
+              renamingId === s.id ? (
+                <div key={s.id} className="session-row" style={{ gap: 6 }}>
+                  <input
+                    autoFocus
+                    value={renamingValue}
+                    onChange={(e) => setRenamingValue(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename();
+                      if (e.key === "Escape") setRenamingId(null);
+                    }}
+                    onBlur={commitRename}
+                    style={{ flex: 1, minWidth: 0 }}
+                  />
+                </div>
+              ) : (
+                <div
+                  key={s.id}
+                  className={`session-row ${s.id === sessionId ? "active" : ""}`}
+                  onClick={() => openSession(s.id)}
+                >
+                  <span>{s.title || t.chatUntitled}</span>
+                  <span style={{ display: "flex", gap: 4 }}>
+                    <button onClick={(e) => startRename(s, e)} title={t.chatRename}>
+                      ✏️
+                    </button>
+                    <button onClick={(e) => removeSession(s.id, e)}>🗑️</button>
+                  </span>
+                </div>
+              )
+            )}
           </div>
         )}
       </div>
@@ -251,6 +308,9 @@ export default function ChatPage() {
         <div ref={bottomRef} />
       </div>
       <div className="chat-input-row">
+        <button type="button" onClick={startNewChat} title={t.chatNewChat} className="chat-new-btn">
+          +
+        </button>
         <textarea
           ref={textareaRef}
           rows={1}
@@ -265,9 +325,15 @@ export default function ChatPage() {
           placeholder={t.chatPlaceholder}
           disabled={sending}
         />
-        <button onClick={() => send(input, sessionId)} disabled={sending || !input.trim()}>
-          {t.chatSend}
-        </button>
+        {sending ? (
+          <button type="button" onClick={stopGenerating} className="chat-stop-btn" title={t.chatStop}>
+            ⏹ {t.chatStop}
+          </button>
+        ) : (
+          <button type="button" onClick={() => send(input, sessionId)} disabled={!input.trim()}>
+            {t.chatSend}
+          </button>
+        )}
       </div>
     </div>
   );
