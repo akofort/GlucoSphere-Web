@@ -166,6 +166,9 @@ class UpdateProfileRequest(BaseModel):
     insulinPump: str | None = None
     cgmSystem: str | None = None
     linkedMainUserId: str | None = None
+    lastName: str | None = None
+    birthDate: str | None = None
+    diabetesSince: str | None = None
 
 
 @app.put("/api/users/me")
@@ -179,14 +182,39 @@ def update_own_profile(req: UpdateProfileRequest, user: dict = Depends(current_u
         req.insulinPump if req.insulinPump is not None else user["insulinPump"],
         req.cgmSystem if req.cgmSystem is not None else user["cgmSystem"],
         req.linkedMainUserId if req.linkedMainUserId is not None else user.get("linkedMainUserId", ""),
+        req.lastName if req.lastName is not None else user.get("lastName", ""),
+        req.birthDate if req.birthDate is not None else user.get("birthDate", ""),
+        req.diabetesSince if req.diabetesSince is not None else user.get("diabetesSince", ""),
     )
 
 
 @app.get("/api/users/diabetiker-accounts")
 def list_diabetiker_accounts(_: dict = Depends(current_user)) -> dict:
     """Not admin-gated (unlike GET /api/users) -- any logged-in user needs this to populate the
-    "linked main user" picker on their own profile (see ProfilePage.tsx)."""
+    "linked main user" picker in Benutzerverwaltung (see UsersPage.tsx)."""
     return {"accounts": db.list_diabetiker_accounts()}
+
+
+@app.get("/api/patient-profile")
+def get_patient_profile(user: dict = Depends(current_user)) -> dict:
+    """The clinical Patientenprofil (see ProfilePage.tsx) is one record per Hauptpatient
+    (DIABETIKER account), not per logged-in user -- FACHPERSONAL/ANGEHOERIGE accounts read the
+    linked main user's record here instead of their own (blank) one, same resolution as the
+    system prompt/dashboard use (_resolve_main_user). `isEditable` tells the frontend whether the
+    caller IS that patient (only the patient's own account, or an admin via Benutzerverwaltung,
+    may change it)."""
+    main = _resolve_main_user(user)
+    return {
+        "id": main["id"],
+        "firstName": main["displayName"],
+        "lastName": main.get("lastName", ""),
+        "birthDate": main.get("birthDate", ""),
+        "diabetesSince": main.get("diabetesSince", ""),
+        "glucoseUnit": main["glucoseUnit"],
+        "insulinPump": main["insulinPump"],
+        "cgmSystem": main["cgmSystem"],
+        "isEditable": main["id"] == user["id"],
+    }
 
 
 @app.get("/api/users")
@@ -215,6 +243,11 @@ class AdminUpdateUserRequest(BaseModel):
     role: str | None = None
     username: str | None = None
     newPassword: str | None = None
+    # Benutzertyp (Diabetiker/Fachpersonal/Angehörige) is anchored in Benutzerverwaltung, not
+    # self-service (see ProfilePage.tsx, now clinical-stammdata-only) -- an admin assigns it here,
+    # along with which DIABETIKER account a FACHPERSONAL/ANGEHOERIGE account is linked to.
+    userRole: str | None = None
+    linkedMainUserId: str | None = None
 
 
 @app.put("/api/users/{user_id}")
@@ -229,7 +262,7 @@ def admin_update_user(user_id: str, req: AdminUpdateUserRequest, admin: dict = D
             raise HTTPException(400, "Neues Passwort muss mindestens 8 Zeichen haben.")
         salt = secrets.token_hex(16)
         db.set_user_password(user_id, auth.hash_password(req.newPassword, salt), salt)
-    updated = db.admin_update_user(user_id, req.role, req.username)
+    updated = db.admin_update_user(user_id, req.role, req.username, req.userRole, req.linkedMainUserId)
     return updated  # type: ignore[return-value]
 
 

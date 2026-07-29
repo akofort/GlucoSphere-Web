@@ -250,6 +250,13 @@ def init_db() -> None:
         # ProfilePage.tsx alongside the user's own role -- empty for DIABETIKER accounts (they are
         # their own main user).
         _add_column_if_missing(conn, "users", "linked_main_user_id", "TEXT NOT NULL DEFAULT ''")
+        # Clinical stammdata of the Hauptpatient (see ProfilePage.tsx / GET /api/patient-profile) --
+        # only meaningful on a DIABETIKER account's own row, same pattern as glucose_unit/
+        # insulin_pump/cgm_system above. birth_date is an ISO date (YYYY-MM-DD), diabetes_since a
+        # plain year string -- both kept as TEXT since they're only ever displayed, never computed.
+        _add_column_if_missing(conn, "users", "last_name", "TEXT NOT NULL DEFAULT ''")
+        _add_column_if_missing(conn, "users", "birth_date", "TEXT NOT NULL DEFAULT ''")
+        _add_column_if_missing(conn, "users", "diabetes_since", "TEXT NOT NULL DEFAULT ''")
         row = conn.execute("SELECT 1 FROM settings WHERE id = 1").fetchone()
         if row is None:
             conn.execute(
@@ -409,6 +416,9 @@ def _user_row_to_dict(r: sqlite3.Row) -> dict[str, Any]:
         "insulinPump": r["insulin_pump"],
         "cgmSystem": r["cgm_system"],
         "linkedMainUserId": r["linked_main_user_id"],
+        "lastName": r["last_name"],
+        "birthDate": r["birth_date"],
+        "diabetesSince": r["diabetes_since"],
         "createdAt": r["created_at"],
     }
 
@@ -479,18 +489,25 @@ def get_user_raw(user_id: str) -> dict[str, Any] | None:
 def update_own_profile(
     user_id: str, display_name: str, user_role: str, app_language: str,
     glucose_unit: str = "MG_DL", insulin_pump: str = "NONE", cgm_system: str = "NONE",
-    linked_main_user_id: str = "",
+    linked_main_user_id: str = "", last_name: str = "", birth_date: str = "", diabetes_since: str = "",
 ) -> dict[str, Any]:
     with get_conn() as conn:
         conn.execute(
             "UPDATE users SET display_name = ?, user_role = ?, app_language = ?, "
-            "glucose_unit = ?, insulin_pump = ?, cgm_system = ?, linked_main_user_id = ? WHERE id = ?",
-            (display_name, user_role, app_language, glucose_unit, insulin_pump, cgm_system, linked_main_user_id, user_id),
+            "glucose_unit = ?, insulin_pump = ?, cgm_system = ?, linked_main_user_id = ?, "
+            "last_name = ?, birth_date = ?, diabetes_since = ? WHERE id = ?",
+            (
+                display_name, user_role, app_language, glucose_unit, insulin_pump, cgm_system,
+                linked_main_user_id, last_name, birth_date, diabetes_since, user_id,
+            ),
         )
     return get_user(user_id)  # type: ignore[return-value]
 
 
-def admin_update_user(user_id: str, role: str | None, username: str | None) -> dict[str, Any] | None:
+def admin_update_user(
+    user_id: str, role: str | None, username: str | None,
+    user_role: str | None = None, linked_main_user_id: str | None = None,
+) -> dict[str, Any] | None:
     updates, params = [], []
     if role is not None:
         updates.append("role = ?")
@@ -498,6 +515,12 @@ def admin_update_user(user_id: str, role: str | None, username: str | None) -> d
     if username is not None:
         updates.append("username = ?")
         params.append(username)
+    if user_role is not None:
+        updates.append("user_role = ?")
+        params.append(user_role)
+    if linked_main_user_id is not None:
+        updates.append("linked_main_user_id = ?")
+        params.append(linked_main_user_id)
     if not updates:
         return get_user(user_id)
     params.append(user_id)

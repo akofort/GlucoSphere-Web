@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type Dashboard, type DashboardSeriesPoint, type DashboardSource } from "../lib/api";
 import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
-import { escapeHtml, printAsPdf } from "../lib/pdfExport";
+import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
 import { stripMarkdownForSpeech, ttsSupported } from "../lib/tts";
 
 const RANGES = [
@@ -92,7 +92,8 @@ function loadCachedDashboard(): Dashboard | null {
 
 export default function OverviewPage() {
   const { t, language } = useLanguage();
-  const { user } = useAuth();
+  const { user, patientProfile, logout } = useAuth();
+  const patientName = patientProfile ? [patientProfile.firstName, patientProfile.lastName].filter(Boolean).join(" ") : "";
   const locale = language === "DE" ? "de-DE" : "en-US";
   // Non-admin (family/care-team) accounts default to a short 3h window; admins keep the previous
   // 24h default. Both can still pick any other range via the chips below.
@@ -242,6 +243,7 @@ export default function OverviewPage() {
       [t.overviewGmi, `${m.estimatedHbA1cPercent.toFixed(1)}%`],
     ];
     const body = `
+      ${patientHeaderHtml(user, patientProfile, t)}
       <p>${escapeHtml(dashboard.statusReason ?? "")}</p>
       <h2>${escapeHtml(t.overviewMetricsTitle(dashboard.rangeLabel ?? ""))}</h2>
       <table>${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</table>
@@ -255,7 +257,7 @@ export default function OverviewPage() {
     <div className="app-shell">
       <div className="topbar">
         <div>
-          <h1>{t.appTitle}</h1>
+          <h1>{t.appTitle}{patientName ? ` · ${patientName}` : ""}</h1>
         </div>
         <div className="topbar-actions">
           {dashboard?.metrics && (
@@ -266,6 +268,9 @@ export default function OverviewPage() {
           <Link to="/settings">
             <button>⚙️</button>
           </Link>
+          <button onClick={() => logout()} title={t.accountLogout}>
+            🚪
+          </button>
         </div>
       </div>
       <div className="content" ref={contentRef}>

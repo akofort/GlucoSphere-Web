@@ -1,3 +1,5 @@
+import { cgmLabel, pumpLabel } from "./deviceLabels";
+
 // PDF export via the browser's own print dialog ("Save as PDF" destination) -- no client-side PDF
 // library needed (avoids font/umlaut-rendering headaches jsPDF-style libraries have), works the
 // same way in every modern browser. Mirrors the Android app's "Als PDF teilen" in spirit (a
@@ -53,4 +55,25 @@ export function escapeHtml(text: string): string {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+/** For FACHPERSONAL (Typ 2) accounts, every report/PDF export gets an official patient header
+ * prepended -- so a printed report is unambiguous about which patient it covers even outside the
+ * app. Not shown for DIABETIKER (it's their own report) or ANGEHOERIGE (informal/no clinical
+ * use). Returns "" when not applicable, safe to always splice into a template string. */
+export function patientHeaderHtml(
+  user: { userRole: string } | null | undefined,
+  patientProfile: { firstName: string; lastName: string; birthDate: string; diabetesSince: string; cgmSystem: string; insulinPump: string } | null | undefined,
+  t: { profileDeviceNone: string; profileDeviceOther: string; reportPatientHeader: (fields: { name: string; birthDate: string; diabetesSince: string; cgm: string; pump: string }) => string },
+): string {
+  if (user?.userRole !== "FACHPERSONAL" || !patientProfile) return "";
+  const name = [patientProfile.firstName, patientProfile.lastName].filter(Boolean).join(" ") || "--";
+  const line = t.reportPatientHeader({
+    name,
+    birthDate: patientProfile.birthDate || "--",
+    diabetesSince: patientProfile.diabetesSince || "--",
+    cgm: cgmLabel(patientProfile.cgmSystem, t),
+    pump: pumpLabel(patientProfile.insulinPump, t),
+  });
+  return `<p class="patient-header"><strong>${escapeHtml(line)}</strong></p>`;
 }

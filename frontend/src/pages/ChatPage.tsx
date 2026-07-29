@@ -4,8 +4,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type ChatMessage, type ChatSession } from "../lib/api";
+import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
-import { escapeHtml, printAsPdf } from "../lib/pdfExport";
+import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
 import { stripMarkdownForSpeech, ttsSupported } from "../lib/tts";
 
 function markdownToHtml(content: string): string {
@@ -25,6 +26,7 @@ function defaultChatTitle(): string {
 export default function ChatPage() {
   const { t, language } = useLanguage();
   const locale = language === "DE" ? "de-DE" : "en-US";
+  const { user, patientProfile, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -183,6 +185,7 @@ export default function ChatPage() {
   const exportPdf = (message: ChatMessage, index: number) => {
     const question = index > 0 ? messages[index - 1] : null;
     const body = `
+      ${patientHeaderHtml(user, patientProfile, t)}
       ${question?.role === "user" ? `<h2>${t.navChat}</h2><p><strong>${escapeHtml(question.content)}</strong></p>` : ""}
       <div class="markdown">${markdownToHtml(message.content)}</div>
     `;
@@ -205,6 +208,9 @@ export default function ChatPage() {
           <Link to="/settings">
             <button>⚙️</button>
           </Link>
+          <button onClick={() => logout()} title={t.accountLogout}>
+            🚪
+          </button>
         </div>
 
         {showHistory && (

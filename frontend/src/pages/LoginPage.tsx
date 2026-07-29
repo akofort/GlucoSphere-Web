@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext";
 import { STRINGS } from "../lib/strings";
 
@@ -8,6 +9,7 @@ const t = STRINGS[navigator.language.toLowerCase().startsWith("de") ? "DE" : "EN
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -19,6 +21,9 @@ export default function LoginPage() {
     setError(null);
     try {
       await login(username, password);
+      // Always land on the Übersicht (dashboard) after a successful login, regardless of which
+      // URL the browser happened to be on before (e.g. a stale deep link into /settings/...).
+      navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

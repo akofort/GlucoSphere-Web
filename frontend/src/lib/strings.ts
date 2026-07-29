@@ -218,6 +218,11 @@ export interface Strings {
   profileNameSection: string;
   profileFirstName: string;
   profileFirstNamePlaceholder: string;
+  profileLastName: string;
+  profileLastNamePlaceholder: string;
+  profileBirthDateLabel: string;
+  profileDiabetesSinceLabel: string;
+  profileDiabetesSincePlaceholder: string;
   profileSaveName: string;
   profileGlucoseUnitLabel: string;
   profileInsulinPumpLabel: string;
@@ -230,6 +235,10 @@ export interface Strings {
   profileLinkedMainUserLabel: string;
   profileLinkedMainUserNone: string;
   profileLinkedMainUserHint: string;
+  profileReadOnlyHint: (patientName: string) => string;
+  profileNotLinkedHint: string;
+
+  reportPatientHeader: (fields: { name: string; birthDate: string; diabetesSince: string; cgm: string; pump: string }) => string;
 
   accountTitle: string;
   accountLoggedInAs: (username: string) => string;
@@ -281,6 +290,7 @@ export interface Strings {
   usersCannotDeleteSelf: string;
   usersCannotDemoteSelf: string;
   usersYouIndicator: string;
+  usersUserTypeLabel: string;
 
   spTitle: string;
   spBaseSection: string;
@@ -525,11 +535,16 @@ const de: Strings = {
   transportSse: "SSE (älterer MCP-Standard)",
   transportOpenapi: "OpenAPI-Proxy (z. B. mcpo)",
 
-  profileTitle: "Profil / Benutzer",
-  profileNameSection: "Dein Name",
+  profileTitle: "Patientenprofil",
+  profileNameSection: "Persönliche Daten",
   profileFirstName: "Vorname",
   profileFirstNamePlaceholder: "z. B. Andreas",
-  profileSaveName: "Namen speichern",
+  profileLastName: "Nachname",
+  profileLastNamePlaceholder: "z. B. Muster",
+  profileBirthDateLabel: "Geburtsdatum",
+  profileDiabetesSinceLabel: "Diabetes seit (Jahr)",
+  profileDiabetesSincePlaceholder: "z. B. 2015",
+  profileSaveName: "Speichern",
   profileGlucoseUnitLabel: "Blutzucker-Einheit",
   profileInsulinPumpLabel: "Insulinpumpe",
   profileCgmSystemLabel: "CGM-System",
@@ -541,6 +556,11 @@ const de: Strings = {
   profileLinkedMainUserLabel: "Verknüpfter Hauptnutzer",
   profileLinkedMainUserNone: "-- bitte auswählen --",
   profileLinkedMainUserHint: "Datenquellen, Pumpe und CGM dieses Hauptnutzers werden für den Chat verwendet -- deine Antworten beziehen sich dann in der dritten Person auf diese Person, nicht auf dich selbst.",
+  profileReadOnlyHint: (patientName: string) =>
+    `Dies sind die Stammdaten von ${patientName}. Sie werden von ${patientName} selbst (oder einem Administrator unter Benutzerverwaltung) gepflegt und können hier nur eingesehen werden.`,
+  profileNotLinkedHint: "Es ist noch kein Hauptpatient verknüpft. Bitte einen Administrator, dies unter Benutzerverwaltung einzurichten.",
+
+  reportPatientHeader: (f) => `Patient: ${f.name} | Geburtsdatum: ${f.birthDate} | Diabetes seit: ${f.diabetesSince} | Systeme: ${f.cgm} / ${f.pump}`,
 
   accountTitle: "Konto",
   accountLoggedInAs: (username) => `Angemeldet als ${username}`,
@@ -592,6 +612,7 @@ const de: Strings = {
   usersCannotDeleteSelf: "Du kannst dein eigenes Konto hier nicht löschen -- das geht nur unter Konto.",
   usersCannotDemoteSelf: "Du kannst dir nicht selbst die Admin-Rolle entziehen.",
   usersYouIndicator: "(du)",
+  usersUserTypeLabel: "Benutzertyp",
 
   spTitle: "System-Prompt",
   spBaseSection: "Basis-Prompt",
@@ -848,11 +869,16 @@ const en: Strings = {
   transportSse: "SSE (older MCP standard)",
   transportOpenapi: "OpenAPI proxy (e.g. mcpo)",
 
-  profileTitle: "Profile / User",
-  profileNameSection: "Your name",
+  profileTitle: "Patient profile",
+  profileNameSection: "Personal details",
   profileFirstName: "First name",
   profileFirstNamePlaceholder: "e.g. Andrew",
-  profileSaveName: "Save name",
+  profileLastName: "Last name",
+  profileLastNamePlaceholder: "e.g. Sample",
+  profileBirthDateLabel: "Date of birth",
+  profileDiabetesSinceLabel: "Diabetic since (year)",
+  profileDiabetesSincePlaceholder: "e.g. 2015",
+  profileSaveName: "Save",
   profileGlucoseUnitLabel: "Glucose unit",
   profileInsulinPumpLabel: "Insulin pump",
   profileCgmSystemLabel: "CGM system",
@@ -864,6 +890,11 @@ const en: Strings = {
   profileLinkedMainUserLabel: "Linked main user",
   profileLinkedMainUserNone: "-- please select --",
   profileLinkedMainUserHint: "This main user's data sources, pump, and CGM are used for the chat -- replies will refer to that person in the third person, not to you.",
+  profileReadOnlyHint: (patientName: string) =>
+    `This is ${patientName}'s clinical profile. It is maintained by ${patientName} themselves (or an administrator under User management) and can only be viewed here.`,
+  profileNotLinkedHint: "No main patient is linked yet. Ask an administrator to set this up under User management.",
+
+  reportPatientHeader: (f) => `Patient: ${f.name} | Date of birth: ${f.birthDate} | Diabetic since: ${f.diabetesSince} | Systems: ${f.cgm} / ${f.pump}`,
 
   accountTitle: "Account",
   accountLoggedInAs: (username) => `Logged in as ${username}`,
@@ -915,6 +946,7 @@ const en: Strings = {
   usersCannotDeleteSelf: "You can't delete your own account here -- use Account instead.",
   usersCannotDemoteSelf: "You can't remove your own admin role.",
   usersYouIndicator: "(you)",
+  usersUserTypeLabel: "User type",
 
   spTitle: "System Prompt",
   spBaseSection: "Base prompt",

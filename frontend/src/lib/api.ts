@@ -9,12 +9,30 @@ export interface User {
   insulinPump: string;
   cgmSystem: string;
   linkedMainUserId: string;
+  lastName: string;
+  birthDate: string;
+  diabetesSince: string;
   createdAt: number;
 }
 
 export interface DiabetikerAccount {
   id: string;
   displayName: string;
+}
+
+/** Clinical stammdata of the Hauptpatient -- resolved server-side (see GET /api/patient-profile):
+ * for a DIABETIKER account this is their own record, for FACHPERSONAL/ANGEHOERIGE it's the linked
+ * patient's record. `isEditable` is true only for the patient's own account. */
+export interface PatientProfile {
+  id: string;
+  firstName: string;
+  lastName: string;
+  birthDate: string;
+  diabetesSince: string;
+  glucoseUnit: "MG_DL" | "MMOL_L";
+  insulinPump: string;
+  cgmSystem: string;
+  isEditable: boolean;
 }
 
 export interface Settings {
@@ -231,13 +249,17 @@ export const api = {
   updateOwnProfile: (body: {
     displayName: string; userRole: string; appLanguage: string;
     glucoseUnit?: string; insulinPump?: string; cgmSystem?: string; linkedMainUserId?: string;
+    lastName?: string; birthDate?: string; diabetesSince?: string;
   }) => request<User>("/users/me", { method: "PUT", body: JSON.stringify(body) }),
+  getPatientProfile: () => request<PatientProfile>("/patient-profile"),
   getDiabetikerAccounts: () => request<{ accounts: DiabetikerAccount[] }>("/users/diabetiker-accounts"),
   listUsers: () => request<{ users: User[] }>("/users"),
   createUser: (body: { username: string; password: string; role: string; displayName: string }) =>
     request<User>("/users", { method: "POST", body: JSON.stringify(body) }),
-  adminUpdateUser: (id: string, body: { role?: string; username?: string; newPassword?: string }) =>
-    request<User>(`/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  adminUpdateUser: (
+    id: string,
+    body: { role?: string; username?: string; newPassword?: string; userRole?: string; linkedMainUserId?: string },
+  ) => request<User>(`/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ deleted: boolean }>(`/users/${id}`, { method: "DELETE" }),
   getSettings: () => request<Settings>("/settings"),
   updateSettings: (patch: Partial<Settings>) =>

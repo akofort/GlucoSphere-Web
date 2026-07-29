@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
 import SettingsScaffold from "../../components/SettingsScaffold";
-import { api, type User } from "../../lib/api";
+import { api, type DiabetikerAccount, type User } from "../../lib/api";
 import { useLanguage } from "../../lib/LanguageContext";
 import { useAuth } from "../../lib/AuthContext";
 
-function UserRow({ u, onChanged }: { u: User; onChanged: () => void }) {
+const LINKABLE_ROLES: User["userRole"][] = ["FACHPERSONAL", "ANGEHOERIGE"];
+
+function UserRow({
+  u, diabetikerAccounts, onChanged,
+}: {
+  u: User; diabetikerAccounts: DiabetikerAccount[]; onChanged: () => void;
+}) {
   const { t } = useLanguage();
   const { user: me } = useAuth();
   const [resetting, setResetting] = useState(false);
@@ -12,10 +18,39 @@ function UserRow({ u, onChanged }: { u: User; onChanged: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const isSelf = u.id === me?.id;
 
+  const roles: { id: User["userRole"]; label: string }[] = [
+    { id: "DIABETIKER", label: t.roleDiabetiker },
+    { id: "FACHPERSONAL", label: t.roleFachpersonal },
+    { id: "ANGEHOERIGE", label: t.roleAngehoerige },
+  ];
+
   const changeRole = async (role: string) => {
     setError(null);
     try {
       await api.adminUpdateUser(u.id, { role });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const changeUserType = async (userRole: string) => {
+    setError(null);
+    try {
+      // Switching away from FACHPERSONAL/ANGEHOERIGE clears a stale link instead of leaving it
+      // dangling and pointing at a patient the new type no longer implies.
+      const linkedMainUserId = LINKABLE_ROLES.includes(userRole as User["userRole"]) ? u.linkedMainUserId : "";
+      await api.adminUpdateUser(u.id, { userRole, linkedMainUserId });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const changeLinkedMainUser = async (linkedMainUserId: string) => {
+    setError(null);
+    try {
+      await api.adminUpdateUser(u.id, { linkedMainUserId });
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -56,6 +91,26 @@ function UserRow({ u, onChanged }: { u: User; onChanged: () => void }) {
           <option value="MEMBER">{t.usersRoleMember}</option>
         </select>
       </div>
+      <div className="field">
+        <label>{t.usersUserTypeLabel}</label>
+        <select value={u.userRole} onChange={(e) => changeUserType(e.target.value)}>
+          {roles.map((r) => (
+            <option key={r.id} value={r.id}>{r.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {LINKABLE_ROLES.includes(u.userRole) && (
+        <div className="field">
+          <label>{t.profileLinkedMainUserLabel}</label>
+          <select value={u.linkedMainUserId} onChange={(e) => changeLinkedMainUser(e.target.value)}>
+            <option value="">{t.profileLinkedMainUserNone}</option>
+            {diabetikerAccounts.filter((a) => a.id !== u.id).map((a) => (
+              <option key={a.id} value={a.id}>{a.displayName}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {error && <div className="test-result error">{error}</div>}
 
@@ -89,6 +144,7 @@ function UserRow({ u, onChanged }: { u: User; onChanged: () => void }) {
 export default function UsersPage() {
   const { t } = useLanguage();
   const [users, setUsers] = useState<User[]>([]);
+  const [diabetikerAccounts, setDiabetikerAccounts] = useState<DiabetikerAccount[]>([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -98,6 +154,7 @@ export default function UsersPage() {
 
   const load = () => {
     api.listUsers().then((r) => setUsers(r.users));
+    api.getDiabetikerAccounts().then((r) => setDiabetikerAccounts(r.accounts));
   };
 
   useEffect(load, []);
@@ -149,7 +206,7 @@ export default function UsersPage() {
       </div>
 
       {users.map((u) => (
-        <UserRow key={u.id} u={u} onChanged={load} />
+        <UserRow key={u.id} u={u} diabetikerAccounts={diabetikerAccounts} onChanged={load} />
       ))}
     </SettingsScaffold>
   );
