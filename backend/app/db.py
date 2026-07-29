@@ -245,6 +245,11 @@ def init_db() -> None:
         _add_column_if_missing(conn, "users", "insulin_pump", "TEXT NOT NULL DEFAULT 'NONE'")
         _add_column_if_missing(conn, "users", "cgm_system", "TEXT NOT NULL DEFAULT 'NONE'")
         _add_column_if_missing(conn, "mcp_servers", "oauth_token_action", "TEXT NOT NULL DEFAULT ''")
+        # For FACHPERSONAL/ANGEHOERIGE accounts: which DIABETIKER account's data sources/device
+        # settings the system prompt should use (see main.py::send_message). Self-service, set via
+        # ProfilePage.tsx alongside the user's own role -- empty for DIABETIKER accounts (they are
+        # their own main user).
+        _add_column_if_missing(conn, "users", "linked_main_user_id", "TEXT NOT NULL DEFAULT ''")
         row = conn.execute("SELECT 1 FROM settings WHERE id = 1").fetchone()
         if row is None:
             conn.execute(
@@ -403,6 +408,7 @@ def _user_row_to_dict(r: sqlite3.Row) -> dict[str, Any]:
         "glucoseUnit": r["glucose_unit"],
         "insulinPump": r["insulin_pump"],
         "cgmSystem": r["cgm_system"],
+        "linkedMainUserId": r["linked_main_user_id"],
         "createdAt": r["created_at"],
     }
 
@@ -428,6 +434,17 @@ def list_users() -> list[dict[str, Any]]:
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM users ORDER BY created_at ASC").fetchall()
     return [_user_row_to_dict(r) for r in rows]
+
+
+def list_diabetiker_accounts() -> list[dict[str, Any]]:
+    """Just id/displayName, not a full user record -- for the "linked main user" picker on
+    FACHPERSONAL/ANGEHOERIGE profiles (see ProfilePage.tsx), which any logged-in user (not just
+    ADMIN) needs to populate, unlike list_users()/GET /api/users which is admin-only."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, display_name, username FROM users WHERE user_role = 'DIABETIKER' ORDER BY created_at ASC",
+        ).fetchall()
+    return [{"id": r["id"], "displayName": r["display_name"] or r["username"]} for r in rows]
 
 
 def get_user(user_id: str) -> dict[str, Any] | None:
@@ -462,12 +479,13 @@ def get_user_raw(user_id: str) -> dict[str, Any] | None:
 def update_own_profile(
     user_id: str, display_name: str, user_role: str, app_language: str,
     glucose_unit: str = "MG_DL", insulin_pump: str = "NONE", cgm_system: str = "NONE",
+    linked_main_user_id: str = "",
 ) -> dict[str, Any]:
     with get_conn() as conn:
         conn.execute(
             "UPDATE users SET display_name = ?, user_role = ?, app_language = ?, "
-            "glucose_unit = ?, insulin_pump = ?, cgm_system = ? WHERE id = ?",
-            (display_name, user_role, app_language, glucose_unit, insulin_pump, cgm_system, user_id),
+            "glucose_unit = ?, insulin_pump = ?, cgm_system = ?, linked_main_user_id = ? WHERE id = ?",
+            (display_name, user_role, app_language, glucose_unit, insulin_pump, cgm_system, linked_main_user_id, user_id),
         )
     return get_user(user_id)  # type: ignore[return-value]
 

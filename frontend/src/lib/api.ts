@@ -8,7 +8,13 @@ export interface User {
   glucoseUnit: "MG_DL" | "MMOL_L";
   insulinPump: string;
   cgmSystem: string;
+  linkedMainUserId: string;
   createdAt: number;
+}
+
+export interface DiabetikerAccount {
+  id: string;
+  displayName: string;
 }
 
 export interface Settings {
@@ -224,8 +230,9 @@ export const api = {
     }),
   updateOwnProfile: (body: {
     displayName: string; userRole: string; appLanguage: string;
-    glucoseUnit?: string; insulinPump?: string; cgmSystem?: string;
+    glucoseUnit?: string; insulinPump?: string; cgmSystem?: string; linkedMainUserId?: string;
   }) => request<User>("/users/me", { method: "PUT", body: JSON.stringify(body) }),
+  getDiabetikerAccounts: () => request<{ accounts: DiabetikerAccount[] }>("/users/diabetiker-accounts"),
   listUsers: () => request<{ users: User[] }>("/users"),
   createUser: (body: { username: string; password: string; role: string; displayName: string }) =>
     request<User>("/users", { method: "POST", body: JSON.stringify(body) }),

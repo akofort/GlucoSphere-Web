@@ -61,6 +61,18 @@ def require_admin(request: Request) -> dict:
     return user
 
 
+def _resolve_main_user(user: dict) -> dict:
+    """For FACHPERSONAL/ANGEHOERIGE accounts with a linked main user (see ProfilePage.tsx), returns
+    that DIABETIKER account's record -- its device settings (pump/CGM/unit) and display name drive
+    the system prompt instead of the FACHPERSONAL/ANGEHOERIGE account's own (blank) ones. A
+    DIABETIKER account is its own main user; falls back to `user` if the link is missing/stale."""
+    if user.get("userRole") in ("FACHPERSONAL", "ANGEHOERIGE") and user.get("linkedMainUserId"):
+        main = db.get_user(user["linkedMainUserId"])
+        if main:
+            return main
+    return user
+
+
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
@@ -153,6 +165,7 @@ class UpdateProfileRequest(BaseModel):
     glucoseUnit: str | None = None
     insulinPump: str | None = None
     cgmSystem: str | None = None
+    linkedMainUserId: str | None = None
 
 
 @app.put("/api/users/me")
@@ -165,7 +178,15 @@ def update_own_profile(req: UpdateProfileRequest, user: dict = Depends(current_u
         req.glucoseUnit if req.glucoseUnit is not None else user["glucoseUnit"],
         req.insulinPump if req.insulinPump is not None else user["insulinPump"],
         req.cgmSystem if req.cgmSystem is not None else user["cgmSystem"],
+        req.linkedMainUserId if req.linkedMainUserId is not None else user.get("linkedMainUserId", ""),
     )
+
+
+@app.get("/api/users/diabetiker-accounts")
+def list_diabetiker_accounts(_: dict = Depends(current_user)) -> dict:
+    """Not admin-gated (unlike GET /api/users) -- any logged-in user needs this to populate the
+    "linked main user" picker on their own profile (see ProfilePage.tsx)."""
+    return {"accounts": db.list_diabetiker_accounts()}
 
 
 @app.get("/api/users")
@@ -637,10 +658,12 @@ async def get_dashboard(
                 "und die Tipps auf reine kurze Sachinformation beschränkt (was die Werte zeigen) "
                 "-- keine Therapieansätze, keine Dosierungs- oder Behandlungsvorschläge."
             )
+        main_user = _resolve_main_user(user)
         system_prompt = prompts.build_system_prompt(
             settings.get("systemPrompt"), user["displayName"], user["userRole"],
             settings.get("additionalInstructions", ""), user.get("appLanguage", "DE"),
-            user.get("glucoseUnit", "MG_DL"), user.get("insulinPump", "NONE"), user.get("cgmSystem", "NONE"),
+            main_user.get("glucoseUnit", "MG_DL"), main_user.get("insulinPump", "NONE"), main_user.get("cgmSystem", "NONE"),
+            main_user_name=main_user["displayName"],
         )
         start = time.monotonic()
         try:
@@ -763,11 +786,13 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
     available_tools = await tools.list_available_tools(settings, mcp_servers)
 
     app_language = user.get("appLanguage", "DE")
+    main_user = _resolve_main_user(user)
     system_prompt = (
         prompts.build_system_prompt(
             settings.get("systemPrompt"), user["displayName"], user["userRole"],
             settings.get("additionalInstructions", ""), app_language,
-            user.get("glucoseUnit", "MG_DL"), user.get("insulinPump", "NONE"), user.get("cgmSystem", "NONE"),
+            main_user.get("glucoseUnit", "MG_DL"), main_user.get("insulinPump", "NONE"), main_user.get("cgmSystem", "NONE"),
+            main_user_name=main_user["displayName"],
         )
         + _SYSTEM_STATE_TIME_HINT.format(time=time.strftime("%d.%m.%Y %H:%M %Z"))
         + tools.build_realtime_hint(available_tools, app_language == "EN")

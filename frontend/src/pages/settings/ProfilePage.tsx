@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import SettingsScaffold from "../../components/SettingsScaffold";
-import { api, type User } from "../../lib/api";
+import { api, type DiabetikerAccount, type User } from "../../lib/api";
 import { useLanguage } from "../../lib/LanguageContext";
 import { useAuth } from "../../lib/AuthContext";
 
@@ -26,6 +26,8 @@ const CGM_LABELS: Record<string, string> = {
   EVERSENSE: "Eversense",
 };
 
+const LINKABLE_ROLES: User["userRole"][] = ["FACHPERSONAL", "ANGEHOERIGE"];
+
 export default function ProfilePage() {
   const { t } = useLanguage();
   const { user, refresh } = useAuth();
@@ -33,7 +35,13 @@ export default function ProfilePage() {
   const [glucoseUnit, setGlucoseUnit] = useState<User["glucoseUnit"]>(user?.glucoseUnit ?? "MG_DL");
   const [insulinPump, setInsulinPump] = useState(user?.insulinPump ?? "NONE");
   const [cgmSystem, setCgmSystem] = useState(user?.cgmSystem ?? "NONE");
+  const [linkedMainUserId, setLinkedMainUserId] = useState(user?.linkedMainUserId ?? "");
+  const [diabetikerAccounts, setDiabetikerAccounts] = useState<DiabetikerAccount[]>([]);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.getDiabetikerAccounts().then((r) => setDiabetikerAccounts(r.accounts));
+  }, []);
 
   const roles: { id: User["userRole"]; label: string; desc: string }[] = [
     { id: "DIABETIKER", label: t.roleDiabetiker, desc: t.roleDiabetikerDesc },
@@ -47,6 +55,7 @@ export default function ProfilePage() {
     await api.updateOwnProfile({
       displayName: user.displayName, userRole: role, appLanguage: user.appLanguage,
       glucoseUnit: user.glucoseUnit, insulinPump: user.insulinPump, cgmSystem: user.cgmSystem,
+      linkedMainUserId: user.linkedMainUserId,
     });
     await refresh();
   };
@@ -56,12 +65,22 @@ export default function ProfilePage() {
     try {
       await api.updateOwnProfile({
         displayName, userRole: user.userRole, appLanguage: user.appLanguage,
-        glucoseUnit, insulinPump, cgmSystem,
+        glucoseUnit, insulinPump, cgmSystem, linkedMainUserId,
       });
       await refresh();
     } finally {
       setSaving(false);
     }
+  };
+
+  const saveLinkedMainUser = async (id: string) => {
+    setLinkedMainUserId(id);
+    await api.updateOwnProfile({
+      displayName: user.displayName, userRole: user.userRole, appLanguage: user.appLanguage,
+      glucoseUnit: user.glucoseUnit, insulinPump: user.insulinPump, cgmSystem: user.cgmSystem,
+      linkedMainUserId: id,
+    });
+    await refresh();
   };
 
   const pumpLabel = (id: string) => (id === "NONE" ? t.profileDeviceNone : id === "OTHER" ? t.profileDeviceOther : PUMP_LABELS[id]);
@@ -116,6 +135,19 @@ export default function ProfilePage() {
             </div>
           </label>
         ))}
+
+        {LINKABLE_ROLES.includes(user.userRole) && (
+          <div className="field" style={{ marginTop: 12 }}>
+            <label>{t.profileLinkedMainUserLabel}</label>
+            <select value={linkedMainUserId} onChange={(e) => saveLinkedMainUser(e.target.value)}>
+              <option value="">{t.profileLinkedMainUserNone}</option>
+              {diabetikerAccounts.filter((a) => a.id !== user.id).map((a) => (
+                <option key={a.id} value={a.id}>{a.displayName}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.profileLinkedMainUserHint}</p>
+          </div>
+        )}
       </div>
     </SettingsScaffold>
   );

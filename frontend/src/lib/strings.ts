@@ -227,6 +227,9 @@ export interface Strings {
   profileDeviceOther: string;
   profileRoleSection: string;
   profileRoleHint: string;
+  profileLinkedMainUserLabel: string;
+  profileLinkedMainUserNone: string;
+  profileLinkedMainUserHint: string;
 
   accountTitle: string;
   accountLoggedInAs: (username: string) => string;
@@ -535,6 +538,9 @@ const de: Strings = {
   profileDeviceOther: "Andere/Sonstige",
   profileRoleSection: "Benutzertyp",
   profileRoleHint: "Bestimmt Tonalität und fachlichen Fokus der KI-Antworten im Chat und in der Übersicht.",
+  profileLinkedMainUserLabel: "Verknüpfter Hauptnutzer",
+  profileLinkedMainUserNone: "-- bitte auswählen --",
+  profileLinkedMainUserHint: "Datenquellen, Pumpe und CGM dieses Hauptnutzers werden für den Chat verwendet -- deine Antworten beziehen sich dann in der dritten Person auf diese Person, nicht auf dich selbst.",
 
   accountTitle: "Konto",
   accountLoggedInAs: (username) => `Angemeldet als ${username}`,
@@ -855,6 +861,9 @@ const en: Strings = {
   profileDeviceOther: "Other",
   profileRoleSection: "User type",
   profileRoleHint: "Determines the tone and focus of AI answers in Chat and the Overview.",
+  profileLinkedMainUserLabel: "Linked main user",
+  profileLinkedMainUserNone: "-- please select --",
+  profileLinkedMainUserHint: "This main user's data sources, pump, and CGM are used for the chat -- replies will refer to that person in the third person, not to you.",
 
   accountTitle: "Account",
   accountLoggedInAs: (username) => `Logged in as ${username}`,

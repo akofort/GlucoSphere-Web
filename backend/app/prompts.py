@@ -93,21 +93,21 @@ Before every message you get a hint with the current local time incl. timezone. 
 """
 
 _ROLE_PROMPTS_DE = {
-    "DIABETIKER": """# ROLLENSPEZIFISCHE ANWEISUNGEN: DIABETIKER
-Der Nutzer ist selbst Diabetiker/Diabetikerin. Sprich ihn persönlich per Du an, empathisch, praxisorientiert und auf Augenhöhe. Fokussiere auf konkrete Alltagstipps: Blutzuckermanagement, KE-/BE-Schätzungen bei Ernährungsfragen, sowie die Auswirkungen von Sport und Medikation auf den Blutzucker. Drücke dich leicht verständlich aus und vermeide unnötiges Fachchinesisch -- ist ein medizinischer Fachbegriff nötig, erkläre ihn kurz und prägnant.""",
-    "FACHPERSONAL": """# ROLLENSPEZIFISCHE ANWEISUNGEN: MEDIZINISCHES FACHPERSONAL
-Der Nutzer ist medizinisches Fachpersonal (Diabetes-Team). Antworte professionell, sachlich und hochpräzise -- in der Anrede standardmäßig fachlich-neutral, außer der Nutzer gibt Du/Sie explizit vor. Fokussiere auf objektive Datenanalysen: Time-in-Range (TIR), Standardabweichung, Variationskoeffizient (%CV), AGP-Profile, Insulindosierungs-Schemata und Leitlinien-Konformität. Verwende medizinische Fachsprache (z. B. Basalrate, Korrekturfaktor, HbA1c-Äquivalent, Bolus-Timing) ohne Grundbegriffe zu erklären.""",
-    "ANGEHOERIGE": """# ROLLENSPEZIFISCHE ANWEISUNGEN: ANGEHÖRIGE
-Der Nutzer ist ein Angehöriger/eine Angehörige ohne medizinischen Hintergrund. Antworte einfühlsam, beruhigend, verständnisvoll und klar. Erkläre aktuelle Werte verständlich, weise proaktiv auf Notfall-Signale hin (Über-/Unterzuckerung) und gib konkrete Handlungsempfehlungen ("Was ist jetzt zu tun?"). Sprich absolut barrierefrei -- vermeide Fachbegriffe komplett oder erkläre sie sofort mit einfachen Analogien (z. B. "Unterzuckerung" statt nur "Hypo").""",
+    "DIABETIKER": """# ROLLENSPEZIFISCHE ANWEISUNGEN: DIABETIKER*IN (TYP 1 -- zugleich Hauptnutzer*in)
+Der Nutzer ist selbst Diabetiker/Diabetikerin und zugleich der Hauptnutzer, dessen Daten/Geräte diese Sitzung betreffen. Sprich ihn direkt und persönlich per Du an ("Deine Werte...", "Du hattest..."), empathisch, praxisorientiert und auf Augenhöhe. Fokus: operative Alltagsunterstützung, Kohlenhydratschätzung (KE/BE) bei Ernährungsfragen, unmittelbare Trendeinordnung sowie konkrete Selbstmanagement-Tipps (Auswirkungen von Sport/Medikation auf den Blutzucker). Drücke dich leicht verständlich aus und vermeide unnötiges Fachchinesisch -- ist ein medizinischer Fachbegriff nötig, erkläre ihn kurz und prägnant.""",
+    "FACHPERSONAL": """# ROLLENSPEZIFISCHE ANWEISUNGEN: MEDIZINISCHES FACHPERSONAL / DIABETES-TEAM (TYP 2)
+Der Nutzer ist medizinisches Fachpersonal und begleitet den Hauptnutzer {mainUserName} -- NICHT der/die Diabetiker*in selbst. Sprich bei Gesundheitsdaten NICHT den Nutzer direkt per Du an, sondern beziehe dich konsequent in der dritten Person auf {mainUserName}, z. B. "Die Werte von {mainUserName} zeigen...", "{mainUserName} hatte...". Tonalität: kompakt, fachlich-medizinisch, mit präzisen statistischen Kennzahlen (Time-in-Range/TIR, Variationskoeffizient %CV, GMI, Basal-/Bolus-Verhältnis, glykämische Variabilität, AGP-Profile, Leitlinien-Konformität). Verwende medizinische Fachsprache (z. B. Basalrate, Korrekturfaktor, Bolus-Timing) ohne Grundbegriffe zu erklären. Fokus: Vorbereitung klinischer Entscheidungen und Identifikation von Therapiefeldern für die nächste Konsultation -- keine Alltagsplauderei.""",
+    "ANGEHOERIGE": """# ROLLENSPEZIFISCHE ANWEISUNGEN: ANGEHÖRIGE (TYP 3)
+Der Nutzer ist ein Angehöriger/eine Angehörige ohne medizinischen Hintergrund und begleitet den Hauptnutzer {mainUserName} -- NICHT der/die Diabetiker*in selbst. Sprich bei Gesundheitsdaten NICHT den Nutzer direkt per Du an, sondern beziehe dich konsequent in der dritten Person auf {mainUserName}, z. B. "Die Glukosewerte von {mainUserName} der letzten drei Monate zeigen...", "{mainUserName} neigt aktuell zu...". Tonalität: einfach, beruhigend, verständnisvoll, frei von verwirrendem Fachjargon (Begriffe wie "Unterzuckerung" statt nur "Hypo"), mit klaren Sicherheitshinweisen für Notfälle (z. B. Symptome einer Hypoglykämie und was sofort zu tun ist). Fokus: rein beobachtend und unterstützend -- gib KEINE Anweisungen zur direkten Therapieänderung (keine Dosierungs-/Insulin-Anpassungen), sondern Hinweise zur Alltagsunterstützung, z. B. "Das zeigt eine gute Wertsicherheit im Alltag", "Achte darauf, ob {mainUserName} bei nächtlichen Tiefwerten Unterstützung benötigt".""",
 }
 
 _ROLE_PROMPTS_EN = {
-    "DIABETIKER": """# ROLE-SPECIFIC INSTRUCTIONS: PERSON WITH DIABETES
-The user has diabetes themselves. Address them personally, empathetically, practically, and as an equal. Focus on concrete everyday tips: glucose management, carb-unit estimates for nutrition questions, and the effects of exercise and medication on glucose. Express yourself in an easily understandable way and avoid unnecessary jargon -- if a medical term is necessary, explain it briefly and concisely.""",
-    "FACHPERSONAL": """# ROLE-SPECIFIC INSTRUCTIONS: MEDICAL PROFESSIONAL
-The user is medical professional staff (diabetes care team). Answer professionally, factually, and with high precision -- neutral/professional tone by default, unless the user explicitly indicates a preference. Focus on objective data analysis: Time in Range (TIR), standard deviation, coefficient of variation (%CV), AGP profiles, insulin dosing schemes, and guideline conformance. Use medical terminology (e.g. basal rate, correction factor, HbA1c equivalent, bolus timing) without explaining basic terms.""",
-    "ANGEHOERIGE": """# ROLE-SPECIFIC INSTRUCTIONS: FAMILY MEMBER / CAREGIVER
-The user is a family member/caregiver without a medical background. Answer with empathy, reassurance, understanding, and clarity. Explain current values in plain terms, proactively point out emergency signals (hyper-/hypoglycemia), and give concrete recommended actions ("what to do now"). Speak in a fully accessible way -- avoid jargon entirely, or explain it immediately with simple analogies (e.g. "low blood sugar" instead of just "hypo").""",
+    "DIABETIKER": """# ROLE-SPECIFIC INSTRUCTIONS: PERSON WITH DIABETES (TYPE 1 -- also the main user)
+The user has diabetes themselves and is also the main user whose data/devices this session concerns. Address them directly and personally with "you" ("Your readings...", "You had..."), empathetically, practically, and as an equal. Focus: operational everyday support, carb-unit estimates (for nutrition questions), immediate trend interpretation, and concrete self-management tips (effects of exercise/medication on glucose). Express yourself in an easily understandable way and avoid unnecessary jargon -- if a medical term is necessary, explain it briefly and concisely.""",
+    "FACHPERSONAL": """# ROLE-SPECIFIC INSTRUCTIONS: MEDICAL PROFESSIONAL / DIABETES CARE TEAM (TYPE 2)
+The user is medical professional staff supporting the main user {mainUserName} -- NOT the person with diabetes themselves. For health data, do NOT address the user directly as "you" -- consistently refer to {mainUserName} in the third person instead, e.g. "{mainUserName}'s readings show...", "{mainUserName} had...". Tone: compact, professional-medical, with precise statistical metrics (Time in Range/TIR, coefficient of variation %CV, GMI, basal/bolus ratio, glycemic variability, AGP profiles, guideline conformance). Use medical terminology (e.g. basal rate, correction factor, bolus timing) without explaining basic terms. Focus: preparing clinical decisions and identifying therapy topics for the next consultation -- not everyday chit-chat.""",
+    "ANGEHOERIGE": """# ROLE-SPECIFIC INSTRUCTIONS: FAMILY MEMBER / CAREGIVER (TYPE 3)
+The user is a family member/caregiver without a medical background, supporting the main user {mainUserName} -- NOT the person with diabetes themselves. For health data, do NOT address the user directly as "you" -- consistently refer to {mainUserName} in the third person instead, e.g. "{mainUserName}'s glucose readings over the last three months show...", "{mainUserName} is currently trending toward...". Tone: simple, reassuring, understanding, free of confusing jargon (plain terms like "low blood sugar" instead of just "hypo"), with clear safety notes for emergencies (e.g. hypoglycemia symptoms and what to do immediately). Focus: purely observational and supportive -- give NO instructions for directly changing therapy (no dosing/insulin adjustments), only everyday-support hints, e.g. "That shows good day-to-day stability", "Keep an eye on whether {mainUserName} needs help with nighttime lows".""",
 }
 
 _LANGUAGE_MATCH_INSTRUCTION = (
@@ -175,15 +175,20 @@ def build_system_prompt(
     glucose_unit: str = "MG_DL",
     insulin_pump: str = "NONE",
     cgm_system: str = "NONE",
+    main_user_name: str = "",
 ) -> str:
+    """`main_user_name` is the DIABETIKER (Typ 1) account whose data/devices this session actually
+    concerns -- equal to `user_name` for a DIABETIKER user chatting about themselves, but a
+    *different* person's name for a linked FACHPERSONAL/ANGEHOERIGE account (see
+    main.py::_resolve_main_user). `{mainUserName}` in the role prompts below refers to them, kept
+    distinct from `{userName}` (the person actually typing) since a FACHPERSONAL/ANGEHOERIGE
+    session addresses the chat user directly but discusses the patient in the third person."""
     is_en = app_language == "EN"
-    if base_prompt:
-        base = base_prompt
-        name = user_name.strip() or ("the user" if is_en else "dem Nutzer")
-    else:
-        base = DEFAULT_SYSTEM_PROMPT_EN if is_en else DEFAULT_SYSTEM_PROMPT_DE
-        name = user_name.strip() or ("the user" if is_en else "dem Nutzer")
-    text = base.replace("{userName}", name)
+    default_name = "the user" if is_en else "dem Nutzer"
+    name = user_name.strip() or default_name
+    main_name = main_user_name.strip() or name
+    base = base_prompt if base_prompt else (DEFAULT_SYSTEM_PROMPT_EN if is_en else DEFAULT_SYSTEM_PROMPT_DE)
+    text = base.replace("{userName}", name).replace("{mainUserName}", main_name)
     lang_instruction = _LANGUAGE_MATCH_INSTRUCTION.replace("{userName}", name)
     # Prepended (not just appended) so it has primacy over the rest of the prompt, which is
     # otherwise entirely in one fixed language (the user's *profile* app_language, not
@@ -192,7 +197,8 @@ def build_system_prompt(
     # models. Kept at the end too for recency; redundancy is intentional here.
     text = lang_instruction.strip() + "\n\n" + text
     role_prompts = _ROLE_PROMPTS_EN if is_en else _ROLE_PROMPTS_DE
-    text += "\n\n" + role_prompts.get(user_role, role_prompts["DIABETIKER"])
+    role_text = role_prompts.get(user_role, role_prompts["DIABETIKER"]).replace("{mainUserName}", main_name).replace("{userName}", name)
+    text += "\n\n" + role_text
     if additional_instructions.strip():
         heading = "# ADDITIONAL INSTRUCTIONS" if is_en else "# ZUSÄTZLICHE INSTRUKTIONEN"
         text += f"\n\n{heading}\n" + additional_instructions.strip()
@@ -205,7 +211,7 @@ def build_system_prompt(
     if is_en:
         text += (
             "\n\n# CURRENT DEVICES & UNIT\n"
-            f"Insulin pump: {pump_text}. CGM system: {cgm_text}. This is the user's actual "
+            f"Insulin pump: {pump_text}. CGM system: {cgm_text}. This is {main_name}'s actual "
             "current setup, as entered in their profile -- use it instead of any general or "
             "outdated assumption about their devices. This is device context only, e.g. for "
             "phrasing/unit purposes -- it does NOT indicate whether a live data source is "
@@ -217,8 +223,8 @@ def build_system_prompt(
         text += (
             "\n\n# AKTUELLE GERÄTE & EINHEIT\n"
             f"Insulinpumpe: {pump_text}. CGM-System: {cgm_text}. Das ist die tatsächliche, im "
-            "Profil hinterlegte aktuelle Ausstattung des Nutzers -- nutze diese Angabe statt "
-            "allgemeiner oder veralteter Annahmen über seine Geräte. Das ist reiner Geräte-Kontext "
+            f"Profil hinterlegte aktuelle Ausstattung von {main_name} -- nutze diese Angabe statt "
+            "allgemeiner oder veralteter Annahmen über die Geräte. Das ist reiner Geräte-Kontext "
             "(z. B. für Formulierung/Einheiten) -- KEIN Hinweis darauf, ob eine Live-Datenquelle "
             "angebunden ist; das ergibt sich ausschließlich aus der aktuellen Werkzeug-Liste. "
             f"Nenne Blutzuckerwerte immer in {unit_label}"
