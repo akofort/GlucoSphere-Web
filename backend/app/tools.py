@@ -57,6 +57,7 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                            "per Nightscout REST-API für einen Zeitraum ab.",
             "inputSchema": _NIGHTSCOUT_SCHEMA,
             "_source": "nightscout",
+            "_realtime": True,
         })
     if settings.get("feelfitEmail") and settings.get("feelfitEnabled", True):
         tools.append({
@@ -65,15 +66,20 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                            "Knochenmasse, Wasseranteil, viszerales Fett, Grundumsatz) von der FeelFit-Körperwaage ab.",
             "inputSchema": _FEELFIT_SCHEMA,
             "_source": "feelfit",
+            "_realtime": False,
         })
     if settings.get("googleHealthAccessToken") or settings.get("googleHealthRefreshToken"):
         if settings.get("googleHealthEnabled", True):
             tools.append({
                 "name": GOOGLE_HEALTH_TOOL_NAME,
                 "description": "Ruft Blutzucker-Messungen (mg/dL, Zeitstempel) über die Google Health API für einen "
-                               "Zeitraum ab -- z. B. von einem verbundenen CGM/BZ-Messgerät, das mit Google Health synchronisiert.",
+                               "Zeitraum ab -- z. B. von einem verbundenen CGM/BZ-Messgerät, das mit Google Health synchronisiert. "
+                               "ZEITVERZÖGERTE QUELLE -- die Synchronisation von der jeweiligen Drittanbieter-App nach "
+                               "Google Health kann Minuten bis Stunden dauern; NICHT für Fragen zu aktuellen Werten/den "
+                               "letzten 2 Stunden verwenden.",
                 "inputSchema": _GOOGLE_HEALTH_SCHEMA,
                 "_source": "google_health",
+                "_realtime": False,
             })
             tools.append({
                 "name": GOOGLE_HEALTH_SLEEP_TOOL_NAME,
@@ -85,6 +91,7 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                                "Mitternacht), sonst wird die Sitzung fälschlich als 'keine Daten' gemeldet.",
                 "inputSchema": _GOOGLE_HEALTH_SCHEMA,
                 "_source": "google_health",
+                "_realtime": False,
             })
             tools.append({
                 "name": GOOGLE_HEALTH_STEPS_TOOL_NAME,
@@ -92,6 +99,7 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                                "Zeitintervalle mit jeweiliger Schrittzahl) -- z. B. von einer verbundenen Smartwatch.",
                 "inputSchema": _GOOGLE_HEALTH_SCHEMA,
                 "_source": "google_health",
+                "_realtime": False,
             })
             tools.append({
                 "name": GOOGLE_HEALTH_HEART_RATE_TOOL_NAME,
@@ -99,6 +107,7 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                                "für einen Zeitraum ab -- z. B. von einer verbundenen Smartwatch.",
                 "inputSchema": _GOOGLE_HEALTH_SCHEMA,
                 "_source": "google_health",
+                "_realtime": False,
             })
             tools.append({
                 "name": GOOGLE_HEALTH_RESTING_HEART_RATE_TOOL_NAME,
@@ -107,6 +116,7 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                                "die rohen Pulsmessungen.",
                 "inputSchema": _GOOGLE_HEALTH_SCHEMA,
                 "_source": "google_health",
+                "_realtime": False,
             })
             tools.append({
                 "name": GOOGLE_HEALTH_HRV_TOOL_NAME,
@@ -117,6 +127,7 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                                "dafür, aber kein offizieller kombinierter Score.",
                 "inputSchema": _GOOGLE_HEALTH_SCHEMA,
                 "_source": "google_health",
+                "_realtime": False,
             })
     if settings.get("dexcomUsername") and settings.get("dexcomEnabled", True):
         tools.append({
@@ -125,6 +136,7 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                            "Dexcom-Share-API ab -- liefert nur die letzten bis zu 24 Stunden, keine älteren Daten.",
             "inputSchema": _FEELFIT_SCHEMA,
             "_source": "dexcom",
+            "_realtime": True,
         })
     if settings.get("libreEmail") and settings.get("libreEnabled", True):
         tools.append({
@@ -133,15 +145,19 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                            "Libre) ab -- liefert nur die letzten ca. 12 Stunden, keine älteren Daten.",
             "inputSchema": _FEELFIT_SCHEMA,
             "_source": "librelinkup",
+            "_realtime": True,
         })
     if settings.get("glookoUsername") and settings.get("glookoEnabled", True):
         tools.append({
             "name": GLOOKO_TOOL_NAME,
             "description": "Ruft allgemeine Insulinpumpen-Daten (Bolusgaben mit Zeitpunkt/Einheiten, tägliche "
                            "Basal-/Bolus-/Gesamt-Insulinmenge) für einen Zeitraum ab -- herstellerunabhängig, "
-                           "unabhängig vom konkreten Pumpenmodell.",
+                           "unabhängig vom konkreten Pumpenmodell. ZEITVERZÖGERTE QUELLE -- NIEMALS für Fragen zu "
+                           "aktuellen Werten/Ereignissen der letzten 2 Stunden verwenden, auch wenn Einträge scheinbar "
+                           "aktuell aussehen.",
             "inputSchema": _GOOGLE_HEALTH_SCHEMA,
             "_source": "glooko",
+            "_realtime": False,
         })
     for server in mcp_servers:
         if not server.get("enabled"):
@@ -152,8 +168,59 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                 "description": tool.description,
                 "inputSchema": tool.input_schema,
                 "_source": server["id"],
+                # Admin-set per-server toggle (see McpServerEditor.tsx) -- the same flag the
+                # dashboard uses to prefer realtime sources over lagging ones.
+                "_realtime": bool(server.get("isRealtime")),
             })
     return tools
+
+
+_REALTIME_HINT_DE = (
+    "\n\n# ECHTZEIT-EINSTUFUNG DER AKTUELLEN WERKZEUGE\n"
+    "Jedes oben gelistete Werkzeug ist hier als ECHTZEIT oder ZEITVERZÖGERT eingestuft. Für "
+    "Fragen zu aktuellen Werten oder Ereignissen der letzten 2 Stunden (z. B. \"Wie ist mein BZ "
+    "gerade?\", \"Trend der letzten Stunde\") darfst du AUSSCHLIESSLICH als ECHTZEIT eingestufte "
+    "Werkzeuge verwenden. ZEITVERZÖGERTE Werkzeuge dürfen NIEMALS für solche Fragen herangezogen "
+    "werden, selbst wenn ihre Einträge scheinbar aktuell aussehen.\n"
+)
+_REALTIME_HINT_EN = (
+    "\n\n# REALTIME CLASSIFICATION OF THE CURRENT TOOLS\n"
+    "Every tool listed above is classified here as REALTIME or DELAYED. For questions about "
+    "current values or events from the last 2 hours (e.g. \"what's my BG right now?\", \"trend "
+    "over the last hour\") you may ONLY use tools classified as REALTIME. DELAYED tools must "
+    "NEVER be used for such questions, even if their entries look recent.\n"
+)
+
+
+def build_realtime_hint(available_tools: list[dict], is_en: bool) -> str:
+    """Dynamic, always-accurate per-turn supplement to the static system prompt's recency rules
+    (see prompts.py) -- built from the actual tool list for this turn rather than trusting the
+    model to remember which of possibly many MCP servers are realtime. Also the single place that
+    knows whether a realtime source is configured at all, for the "no live source configured"
+    transparency rule."""
+    realtime = [t["name"] for t in available_tools if t.get("_realtime")]
+    delayed = [t["name"] for t in available_tools if not t.get("_realtime")]
+    if is_en:
+        lines = [_REALTIME_HINT_EN]
+        lines.append(f"REALTIME: {', '.join(realtime) if realtime else '(none)'}")
+        lines.append(f"DELAYED: {', '.join(delayed) if delayed else '(none)'}")
+        if not realtime:
+            lines.append(
+                "\nNo realtime source is currently configured/enabled. For any question about "
+                "current values, say directly that an active Nightscout connection needs to be "
+                "set up for that (Settings -> Data sources)."
+            )
+    else:
+        lines = [_REALTIME_HINT_DE]
+        lines.append(f"ECHTZEIT: {', '.join(realtime) if realtime else '(keine)'}")
+        lines.append(f"ZEITVERZÖGERT: {', '.join(delayed) if delayed else '(keine)'}")
+        if not realtime:
+            lines.append(
+                "\nAktuell ist KEINE Echtzeit-Quelle konfiguriert/aktiviert. Weise bei jeder "
+                "Frage zu aktuellen Werten direkt darauf hin, dass dafür eine aktive "
+                "Nightscout-Anbindung eingerichtet werden muss (Einstellungen -> Datenquellen)."
+            )
+    return "\n".join(lines)
 
 
 async def resolve_server_auth(server: dict, force_refresh: bool = False) -> dict:

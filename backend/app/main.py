@@ -759,14 +759,19 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
 
-    system_prompt = prompts.build_system_prompt(
-        settings.get("systemPrompt"), user["displayName"], user["userRole"],
-        settings.get("additionalInstructions", ""), user.get("appLanguage", "DE"),
-        user.get("glucoseUnit", "MG_DL"), user.get("insulinPump", "NONE"), user.get("cgmSystem", "NONE"),
-    ) + _SYSTEM_STATE_TIME_HINT.format(time=time.strftime("%d.%m.%Y %H:%M %Z"))
-
     mcp_servers = db.list_mcp_servers()
     available_tools = await tools.list_available_tools(settings, mcp_servers)
+
+    app_language = user.get("appLanguage", "DE")
+    system_prompt = (
+        prompts.build_system_prompt(
+            settings.get("systemPrompt"), user["displayName"], user["userRole"],
+            settings.get("additionalInstructions", ""), app_language,
+            user.get("glucoseUnit", "MG_DL"), user.get("insulinPump", "NONE"), user.get("cgmSystem", "NONE"),
+        )
+        + _SYSTEM_STATE_TIME_HINT.format(time=time.strftime("%d.%m.%Y %H:%M %Z"))
+        + tools.build_realtime_hint(available_tools, app_language == "EN")
+    )
 
     conversation = [{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")]
 

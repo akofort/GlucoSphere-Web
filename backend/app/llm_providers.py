@@ -12,6 +12,10 @@ import httpx
 from . import model_catalog as catalog
 
 _TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+# Fixed low temperature for every provider/call -- this is a medical-data assistant that must not
+# get creative with glucose values; anti-hallucination behavior (never inventing/estimating a
+# value) is far more reliable at low temperature than relying on prompt instructions alone.
+_TEMPERATURE = 0.2
 
 
 class ProviderError(RuntimeError):
@@ -101,7 +105,10 @@ async def _chat_gemini(api_key: str, model: str, system_prompt: str, messages: l
         else:
             parts = [{"text": m["content"]}]
         contents.append({"role": role, "parts": parts})
-    body: dict = {"systemInstruction": {"parts": [{"text": system_prompt}]}, "contents": contents}
+    body: dict = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]}, "contents": contents,
+        "generationConfig": {"temperature": _TEMPERATURE},
+    }
     if tools:
         body["tools"] = _to_gemini_tools(tools)
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -147,7 +154,10 @@ async def _chat_anthropic(api_key: str, base_url: str, model: str, system_prompt
             ]})
         else:
             anthropic_messages.append({"role": m["role"], "content": m["content"]})
-    body: dict = {"model": model, "max_tokens": 4096, "system": system_prompt, "messages": anthropic_messages}
+    body: dict = {
+        "model": model, "max_tokens": 4096, "system": system_prompt, "messages": anthropic_messages,
+        "temperature": _TEMPERATURE,
+    }
     if tools:
         body["tools"] = _to_anthropic_tools(tools)
     headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
@@ -191,7 +201,7 @@ async def _chat_openai_compatible(api_key: str, base_url: str, model: str, syste
             openai_messages.append({"role": "tool", "tool_call_id": m["tool_call_id"], "content": m["content"]})
         else:
             openai_messages.append({"role": m["role"], "content": m["content"]})
-    body: dict = {"model": model, "messages": openai_messages}
+    body: dict = {"model": model, "messages": openai_messages, "temperature": _TEMPERATURE}
     if tools:
         body["tools"] = _to_openai_tools(tools)
     headers = {"Authorization": f"Bearer {api_key}", "content-type": "application/json"}
