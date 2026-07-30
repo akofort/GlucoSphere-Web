@@ -15,6 +15,10 @@ export interface User {
   birthDate: string;
   diabetesSince: string;
   colorTheme: ColorTheme;
+  /** AID system (automated insulin delivery) -- distinct from insulinPump (which physical pump)
+   * since a DIY system (AndroidAPS/OpenAPS/Loop/Trio) is a separate algorithm layered on top of a
+   * pump, not the pump itself. See lib/deviceLabels.ts's AID_SYSTEMS. */
+  aidSystem: string;
   createdAt: number;
 }
 
@@ -35,6 +39,7 @@ export interface PatientProfile {
   glucoseUnit: "MG_DL" | "MMOL_L";
   insulinPump: string;
   cgmSystem: string;
+  aidSystem: string;
   isEditable: boolean;
 }
 
@@ -85,6 +90,16 @@ export interface Settings {
   googleHealthCategory: string;
   glookoCategory: string;
   withingsCategory: string;
+  /** User-editable "Anzeigename" per native source (Einstellungen -> Datenquellen) -- defaults to
+   * the plain manufacturer name, drives chat source citations/disambiguation and the dashboard's
+   * combined-sources note. */
+  nightscoutDisplayName: string;
+  dexcomDisplayName: string;
+  libreDisplayName: string;
+  feelfitDisplayName: string;
+  googleHealthDisplayName: string;
+  glookoDisplayName: string;
+  withingsDisplayName: string;
   /** Bearer token securing GlucoSphere-Web's own MCP server endpoint (/api/mcp, see Settings ->
    * MCP Server & API) -- empty means not yet generated. */
   mcpServerToken: string;
@@ -192,6 +207,10 @@ export interface Dashboard {
   combinedSourcesNote?: string | null;
   summaryText?: string | null;
   tips?: string[];
+  /** Item 6's dashboard transparency -- which LLM provider/model actually generated summaryText/
+   * tips above, only set when the narrative was generated successfully. */
+  narrativeProvider?: string | null;
+  narrativeModel?: string | null;
   /** IOB (Insulin on Board, IE) -- null when no Nightscout Loop/AndroidAPS devicestatus is
    * reporting, not an error. */
   iobUnits?: number | null;
@@ -283,7 +302,7 @@ export const api = {
   updateOwnProfile: (body: {
     displayName: string; userRole: string; appLanguage: string;
     glucoseUnit?: string; insulinPump?: string; cgmSystem?: string; linkedMainUserId?: string;
-    lastName?: string; birthDate?: string; diabetesSince?: string; colorTheme?: string;
+    lastName?: string; birthDate?: string; diabetesSince?: string; colorTheme?: string; aidSystem?: string;
   }) => request<User>("/users/me", { method: "PUT", body: JSON.stringify(body) }),
   getPatientProfile: () => request<PatientProfile>("/patient-profile"),
   getDiabetikerAccounts: () => request<{ accounts: DiabetikerAccount[] }>("/users/diabetiker-accounts"),

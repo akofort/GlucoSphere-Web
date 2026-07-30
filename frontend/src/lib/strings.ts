@@ -48,6 +48,7 @@ export interface Strings {
   overviewExcluded: string;
   overviewLastUpdated: (time: string) => string;
   overviewNarrativeFailed: string;
+  overviewAnalyzedWith: (provider: string, model: string) => string;
   chatFailed: string;
 
   chatPlaceholder: string;
@@ -202,6 +203,8 @@ export interface Strings {
   dataSourcesAuthBearer: string;
   dataSourcesToken: string;
   dataSourcesEnabled: string;
+  dsDisplayNameLabel: string;
+  dsDisplayNameHint: string;
   dataSourcesCategoryLabel: string;
   dataSourcesTestConnection: string;
   dataSourcesMcpTitle: (count: number) => string;
@@ -265,6 +268,9 @@ export interface Strings {
   profileGlucoseUnitLabel: string;
   profileInsulinPumpLabel: string;
   profileCgmSystemLabel: string;
+  profileAidSystemLabel: string;
+  profileAidCommercialGroup: string;
+  profileAidDiyGroup: string;
   profileDeviceHint: string;
   profileDeviceNone: string;
   profileDeviceOther: string;
@@ -276,7 +282,7 @@ export interface Strings {
   profileReadOnlyHint: (patientName: string) => string;
   profileNotLinkedHint: string;
 
-  reportPatientHeader: (fields: { name: string; birthDate: string; diabetesSince: string; cgm: string; pump: string }) => string;
+  reportPatientHeader: (fields: { name: string; birthDate: string; diabetesSince: string; cgm: string; aid: string; unit: string }) => string;
 
   accountTitle: string;
   accountLoggedInAs: (username: string) => string;
@@ -401,6 +407,7 @@ const de: Strings = {
   overviewExcluded: "Für diese Ansicht deaktiviert -- oben wieder auswählen.",
   overviewLastUpdated: (time) => `Letzter Stand: ${time}`,
   overviewNarrativeFailed: "KI-Zusammenfassung nicht verfügbar (Anbieter-Fehler) -- Kennzahlen oben sind trotzdem aktuell.",
+  overviewAnalyzedWith: (provider, model) => `Ausgewertet mit: ${provider} · ${model}`,
   chatFailed: "Fehlgeschlagen",
 
   chatPlaceholder: "Nachricht eingeben …",
@@ -424,7 +431,7 @@ const de: Strings = {
   chatUntitled: "Chat",
 
   settingsTitle: "Einstellungen",
-  settingsProfile: "Profil / Benutzer",
+  settingsProfile: "Patientenprofil",
   settingsLlmConfig: "LLM-Konfiguration",
   settingsDataSources: "Datenquellen",
   settingsBackup: "Backup & Konfiguration",
@@ -525,13 +532,13 @@ const de: Strings = {
   llmConfigNotTested: "Noch nicht getestet – zum Speichern erst testen.",
 
   dataSourcesTitle: "Datenquellen",
-  dataSourcesNightscoutTitle: "Nightscout REST-API",
+  dataSourcesNightscoutTitle: "Nightscout",
   dataSourcesNightscoutHint: "Direkter Zugriff ohne MCP-Server. Token/API-Secret sind optional (nur für private Instanzen nötig).",
-  dataSourcesFeelfitTitle: "FeelFit-Körperwaage",
+  dataSourcesFeelfitTitle: "FeelFit",
   dataSourcesFeelfitHint: "Direkter Zugriff auf Körperzusammensetzungs-Messungen (Gewicht, Körperfett, Muskelmasse u. a.) ohne eigenen MCP-Server -- einfach die Zugangsdaten des FeelFit-Kontos eintragen.",
   dataSourcesFeelfitEmail: "FeelFit-Email",
   dataSourcesFeelfitPassword: "FeelFit-Passwort",
-  dataSourcesGoogleHealthTitle: "Google Health API",
+  dataSourcesGoogleHealthTitle: "Google Health",
   dataSourcesGoogleHealthHint: "Blutzucker-Messungen (z. B. von einem mit Google Health synchronisierten CGM/Messgerät) direkt über Googles offizielle Health-API. Erfordert eine selbst registrierte OAuth2-App in der Google Cloud Console mit der unten gezeigten Redirect-URI.",
   dataSourcesGoogleHealthClientId: "Google-Client-ID",
   dataSourcesGoogleHealthClientSecret: "Google-Client-Secret",
@@ -539,7 +546,7 @@ const de: Strings = {
   dataSourcesGoogleHealthLoginAgain: "Erneut anmelden",
   dataSourcesGoogleHealthLoggedIn: "Angemeldet",
   dataSourcesGoogleHealthNotLoggedIn: "Nicht angemeldet",
-  dataSourcesWithingsTitle: "Withings API",
+  dataSourcesWithingsTitle: "Withings",
   dataSourcesWithingsHint: "Gewicht, Körperfettanteil (letzte 3 Monate, inkl. Trendrichtung), sowie -- bei einer verbundenen Withings-Smartwatch -- tägliche Aktivität (Schritte, Kalorien, Puls), Schlaf-Zusammenfassungen und einzelne Trainingseinheiten, direkt über die offizielle Withings-REST-API. Erfordert eine selbst registrierte OAuth2-App im Withings Developer Portal mit der unten gezeigten Redirect-URI. Nach einem bereits bestehenden Login bitte einmalig erneut anmelden, damit die zusätzlichen Berechtigungen (Aktivität/Schlaf) mit übernommen werden.",
   dataSourcesWithingsClientId: "Withings-Client-ID",
   dataSourcesWithingsClientSecret: "Withings-Client-Secret",
@@ -549,18 +556,18 @@ const de: Strings = {
   dataSourcesWithingsNotLoggedIn: "Nicht angemeldet",
   dsRestApiHint: "Direkt-API (i.d.R. schneller)",
   dsRestApiBadge: "Direkt-API",
-  dataSourcesDexcomTitle: "Dexcom Share",
+  dataSourcesDexcomTitle: "Dexcom",
   dataSourcesDexcomHint: "Direkter Zugriff auf aktuelle CGM-Werte über die Dexcom-Share-API (dieselbe Cloud-API wie die Dexcom-Follow-App) -- liefert nur die letzten bis zu 24 Stunden, keine ältere Historie. Zugangsdaten des Dexcom-Kontos eintragen (nicht das Follower-Konto).",
   dataSourcesDexcomUsername: "Dexcom-Benutzername",
   dataSourcesDexcomPassword: "Dexcom-Passwort",
-  dataSourcesGlookoTitle: "Insulinpumpe (Glooko)",
+  dataSourcesGlookoTitle: "Glooko",
   dataSourcesGlookoHint: "Allgemeine Insulinpumpen-Daten (Bolusgaben, tägliche Basal-/Bolus-Summen) über Glooko -- herstellerunabhängig, funktioniert unabhängig vom konkreten Pumpenmodell. Zugangsdaten des Glooko-Kontos eintragen.",
   dataSourcesGlookoUsername: "Glooko-Benutzername/E-Mail",
   dataSourcesGlookoPassword: "Glooko-Passwort",
   dataSourcesDexcomRegion: "Region",
   dataSourcesDexcomRegionUs: "USA",
   dataSourcesDexcomRegionOus: "Außerhalb der USA",
-  dataSourcesLibreTitle: "LibreLinkUp (FreeStyle Libre)",
+  dataSourcesLibreTitle: "LibreLinkUp",
   dataSourcesLibreHint: "Direkter Zugriff auf aktuelle CGM-Werte über LibreLinkUp -- liefert nur die letzten ca. 12 Stunden. Erfordert ein LibreLinkUp-Konto (nicht das LibreLink-Konto), das als Beobachter mit dem Libre-Konto verbunden ist.",
   dataSourcesLibreEmail: "LibreLinkUp-Email",
   dataSourcesLibrePassword: "LibreLinkUp-Passwort",
@@ -571,6 +578,8 @@ const de: Strings = {
   dataSourcesAuthBearer: "Bearer Token",
   dataSourcesToken: "Token / Secret",
   dataSourcesEnabled: "Datenquelle aktiviert",
+  dsDisplayNameLabel: "Anzeigename",
+  dsDisplayNameHint: "Eigener Name für diese Quelle -- wird in Chat-Quellenangaben, im Dashboard und bei der Quellenauswahl verwendet.",
   dataSourcesCategoryLabel: "Kategorie",
   dataSourcesTestConnection: "Verbindung testen",
   dataSourcesMcpTitle: (count) => `MCP-Server (${count})`,
@@ -634,6 +643,9 @@ const de: Strings = {
   profileGlucoseUnitLabel: "Blutzucker-Einheit",
   profileInsulinPumpLabel: "Insulinpumpe",
   profileCgmSystemLabel: "CGM-System",
+  profileAidSystemLabel: "AID-System / Pumpe",
+  profileAidCommercialGroup: "Kommerzielle Systeme",
+  profileAidDiyGroup: "DIY-AID-Systeme",
   profileDeviceHint: "Wird in Chat-Antworten und Berichten berücksichtigt, statt auf veraltete allgemeine Annahmen zurückzugreifen.",
   profileDeviceNone: "Keine/keins",
   profileDeviceOther: "Andere/Sonstige",
@@ -646,7 +658,7 @@ const de: Strings = {
     `Dies sind die Stammdaten von ${patientName}. Sie werden von ${patientName} selbst (oder einem Administrator unter Benutzerverwaltung) gepflegt und können hier nur eingesehen werden.`,
   profileNotLinkedHint: "Es ist noch kein Hauptpatient verknüpft. Bitte einen Administrator, dies unter Benutzerverwaltung einzurichten.",
 
-  reportPatientHeader: (f) => `Patient: ${f.name} | Geburtsdatum: ${f.birthDate} | Diabetes seit: ${f.diabetesSince} | Systeme: ${f.cgm} / ${f.pump}`,
+  reportPatientHeader: (f) => `Patient: ${f.name} | Geb.: ${f.birthDate} | Diabetes seit: ${f.diabetesSince} | Sensor: ${f.cgm} | AID-System: ${f.aid} | Einheit: ${f.unit}`,
 
   accountTitle: "Konto",
   accountLoggedInAs: (username) => `Angemeldet als ${username}`,
@@ -715,12 +727,14 @@ const de: Strings = {
   aboutCopyright: "© 2026 GlucoSphere. Alle Rechte vorbehalten.",
   aboutDisclaimerTitle: "Medizinischer Haftungsausschluss",
   aboutDisclaimerText:
-    "GlucoSphere ist kein Medizinprodukt und ersetzt keine ärztliche Diagnose, Beratung oder Behandlung. " +
+    "GlucoSphere ist kein medizinisches Gerät und ersetzt keine ärztliche Beratung oder Therapieentscheidung. " +
     "Alle angezeigten Werte, Analysen und KI-generierten Hinweise dienen ausschließlich der persönlichen " +
     "Information und Unterstützung im Alltag -- auch für Familienangehörige und Diabetes-Team-Mitglieder, " +
-    "die als Mitglied-Konto Zugriff haben. Verlasse dich bei Therapieentscheidungen (z. B. Insulindosierung) " +
-    "niemals allein auf diese App -- sprich Auffälligkeiten und Warnwerte immer mit dem behandelnden " +
-    "Diabetologen bzw. Diabetesberater ab.",
+    "die als Mitglied-Konto Zugriff haben. KI-Modelle können halluzinieren und Werte oder Zusammenhänge " +
+    "erfinden, die in den echten Quelldaten nicht existieren. Alle ausgegebenen Werte und Trends müssen " +
+    "vor einer therapeutischen Maßnahme mit den Originaldaten der Quelldienste (z. B. Nightscout/Glooko) " +
+    "abgeglichen und mit dem Diabetes-Team besprochen werden -- verlasse dich bei Therapieentscheidungen " +
+    "(z. B. Insulindosierung) niemals allein auf diese App.",
   aboutPrivacyTitle: "Datenschutz-Hinweise",
   aboutPrivacyText:
     "GlucoSphere-Web speichert Einstellungen, Zugangsdaten und Chatverläufe ausschließlich lokal auf dem " +
@@ -783,6 +797,7 @@ const en: Strings = {
   overviewExcluded: "Disabled for this view -- select it again above.",
   overviewLastUpdated: (time) => `Last updated: ${time}`,
   overviewNarrativeFailed: "AI summary unavailable (provider error) -- the metrics above are still current.",
+  overviewAnalyzedWith: (provider, model) => `Analyzed with: ${provider} · ${model}`,
   chatFailed: "Failed",
 
   chatPlaceholder: "Type a message …",
@@ -806,7 +821,7 @@ const en: Strings = {
   chatUntitled: "Chat",
 
   settingsTitle: "Settings",
-  settingsProfile: "Profile / User",
+  settingsProfile: "Patient profile",
   settingsLlmConfig: "LLM configuration",
   settingsDataSources: "Data sources",
   settingsBackup: "Backup & configuration",
@@ -913,7 +928,7 @@ const en: Strings = {
   dataSourcesFeelfitHint: "Direct access to body composition measurements (weight, body fat, muscle mass, and more) without a separate MCP server -- just enter your FeelFit account credentials.",
   dataSourcesFeelfitEmail: "FeelFit email",
   dataSourcesFeelfitPassword: "FeelFit password",
-  dataSourcesGoogleHealthTitle: "Google Health API",
+  dataSourcesGoogleHealthTitle: "Google Health",
   dataSourcesGoogleHealthHint: "Blood glucose readings (e.g. from a CGM/meter synced with Google Health) directly via Google's official Health API. Requires your own OAuth2 app registered in the Google Cloud Console, using the redirect URI shown below.",
   dataSourcesGoogleHealthClientId: "Google client ID",
   dataSourcesGoogleHealthClientSecret: "Google client secret",
@@ -921,7 +936,7 @@ const en: Strings = {
   dataSourcesGoogleHealthLoginAgain: "Log in again",
   dataSourcesGoogleHealthLoggedIn: "Logged in",
   dataSourcesGoogleHealthNotLoggedIn: "Not logged in",
-  dataSourcesWithingsTitle: "Withings API",
+  dataSourcesWithingsTitle: "Withings",
   dataSourcesWithingsHint: "Weight, body-fat percentage (last 3 months, incl. trend direction), and -- with a connected Withings smartwatch -- daily activity (steps, calories, heart rate), sleep summaries, and individual workouts, directly via the official Withings REST API. Requires your own OAuth2 app registered in the Withings Developer Portal, using the redirect URI shown below. If you already logged in before, please log in again once so the extra activity/sleep permissions get picked up.",
   dataSourcesWithingsClientId: "Withings client ID",
   dataSourcesWithingsClientSecret: "Withings client secret",
@@ -931,18 +946,18 @@ const en: Strings = {
   dataSourcesWithingsNotLoggedIn: "Not logged in",
   dsRestApiHint: "Direct API (usually faster)",
   dsRestApiBadge: "Direct API",
-  dataSourcesDexcomTitle: "Dexcom Share",
+  dataSourcesDexcomTitle: "Dexcom",
   dataSourcesDexcomHint: "Direct access to current CGM readings via the Dexcom Share API (the same cloud API used by the Dexcom Follow app) -- only returns up to the last 24 hours, no older history. Enter the Dexcom account's own credentials (not a follower account).",
   dataSourcesDexcomUsername: "Dexcom username",
   dataSourcesDexcomPassword: "Dexcom password",
-  dataSourcesGlookoTitle: "Insulin pump (Glooko)",
+  dataSourcesGlookoTitle: "Glooko",
   dataSourcesGlookoHint: "General insulin pump data (bolus doses, daily basal/bolus totals) via Glooko -- vendor-agnostic, works regardless of the specific pump model. Enter the Glooko account's credentials.",
   dataSourcesGlookoUsername: "Glooko username/email",
   dataSourcesGlookoPassword: "Glooko password",
   dataSourcesDexcomRegion: "Region",
   dataSourcesDexcomRegionUs: "United States",
   dataSourcesDexcomRegionOus: "Outside the US",
-  dataSourcesLibreTitle: "LibreLinkUp (FreeStyle Libre)",
+  dataSourcesLibreTitle: "LibreLinkUp",
   dataSourcesLibreHint: "Direct access to current CGM readings via LibreLinkUp -- only returns roughly the last 12 hours. Requires a LibreLinkUp account (not the LibreLink account) connected as a follower to the Libre account.",
   dataSourcesLibreEmail: "LibreLinkUp email",
   dataSourcesLibrePassword: "LibreLinkUp password",
@@ -953,6 +968,8 @@ const en: Strings = {
   dataSourcesAuthBearer: "Bearer token",
   dataSourcesToken: "Token / secret",
   dataSourcesEnabled: "Data source enabled",
+  dsDisplayNameLabel: "Display name",
+  dsDisplayNameHint: "Custom name for this source -- used in chat source citations, the dashboard, and source selection.",
   dataSourcesCategoryLabel: "Category",
   dataSourcesTestConnection: "Test connection",
   dataSourcesMcpTitle: (count) => `MCP servers (${count})`,
@@ -1016,6 +1033,9 @@ const en: Strings = {
   profileGlucoseUnitLabel: "Glucose unit",
   profileInsulinPumpLabel: "Insulin pump",
   profileCgmSystemLabel: "CGM system",
+  profileAidSystemLabel: "AID system / pump",
+  profileAidCommercialGroup: "Commercial systems",
+  profileAidDiyGroup: "DIY AID systems",
   profileDeviceHint: "Taken into account in chat replies and reports, instead of falling back on outdated general assumptions.",
   profileDeviceNone: "None",
   profileDeviceOther: "Other",
@@ -1028,7 +1048,7 @@ const en: Strings = {
     `This is ${patientName}'s clinical profile. It is maintained by ${patientName} themselves (or an administrator under User management) and can only be viewed here.`,
   profileNotLinkedHint: "No main patient is linked yet. Ask an administrator to set this up under User management.",
 
-  reportPatientHeader: (f) => `Patient: ${f.name} | Date of birth: ${f.birthDate} | Diabetic since: ${f.diabetesSince} | Systems: ${f.cgm} / ${f.pump}`,
+  reportPatientHeader: (f) => `Patient: ${f.name} | DOB: ${f.birthDate} | Diabetic since: ${f.diabetesSince} | Sensor: ${f.cgm} | AID system: ${f.aid} | Unit: ${f.unit}`,
 
   accountTitle: "Account",
   accountLoggedInAs: (username) => `Logged in as ${username}`,
@@ -1097,11 +1117,13 @@ const en: Strings = {
   aboutCopyright: "© 2026 GlucoSphere. All rights reserved.",
   aboutDisclaimerTitle: "Medical disclaimer",
   aboutDisclaimerText:
-    "GlucoSphere is not a medical device and does not replace medical diagnosis, advice, or treatment. " +
+    "GlucoSphere is not a medical device and does not replace medical advice or treatment decisions. " +
     "All displayed values, analyses, and AI-generated notes are for personal information and everyday " +
     "support only -- including for family members and diabetes-care-team members with a Member account. " +
-    "Never rely solely on this app for treatment decisions (e.g. insulin dosing) -- always discuss unusual " +
-    "readings or warning values with the treating diabetes team.",
+    "AI models can hallucinate and invent values or relationships that don't exist in the real source " +
+    "data. Every value and trend shown here must be cross-checked against the original data from the " +
+    "source services (e.g. Nightscout/Glooko) and discussed with your diabetes team before any " +
+    "therapeutic action -- never rely solely on this app for treatment decisions (e.g. insulin dosing).",
   aboutPrivacyTitle: "Privacy notice",
   aboutPrivacyText:
     "GlucoSphere-Web stores settings, credentials, and chat history exclusively on the self-hosted server " +

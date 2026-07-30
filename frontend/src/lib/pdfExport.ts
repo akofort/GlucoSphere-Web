@@ -1,4 +1,5 @@
-import { cgmLabel, pumpLabel } from "./deviceLabels";
+import { aidLabel, cgmLabel } from "./deviceLabels";
+import { STRINGS } from "./strings";
 
 // PDF export via the browser's own print dialog ("Save as PDF" destination) -- no client-side PDF
 // library needed (avoids font/umlaut-rendering headaches jsPDF-style libraries have), works the
@@ -34,6 +35,7 @@ export function printAsPdf(title: string, bodyHtml: string): void {
   .markdown pre code { background: none; padding: 0; }
   .markdown blockquote { border-left: 3px solid #ddd0ca; margin: 0.5em 0; padding-left: 10px; color: #5c534f; }
   hr { border: none; border-top: 1px solid #ddd0ca; margin: 20px 0; }
+  .disclaimer-footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ddd0ca; font-size: 0.75rem; line-height: 1.4; color: #5c534f; }
   @media print { body { padding: 0; } }
 </style>
 </head>
@@ -41,6 +43,10 @@ export function printAsPdf(title: string, bodyHtml: string): void {
 <h1>${escapeHtml(title)}</h1>
 <div class="meta">GlucoSphere -- ${new Date().toLocaleString()}</div>
 ${bodyHtml}
+<div class="disclaimer-footer">
+  <p>${escapeHtml(STRINGS.DE.aboutDisclaimerText)}</p>
+  <p>${escapeHtml(STRINGS.EN.aboutDisclaimerText)}</p>
+</div>
 </body>
 </html>`);
   win.document.close();
@@ -63,8 +69,8 @@ export function escapeHtml(text: string): string {
  * use). Returns "" when not applicable, safe to always splice into a template string. */
 export function patientHeaderHtml(
   user: { userRole: string } | null | undefined,
-  patientProfile: { firstName: string; lastName: string; birthDate: string; diabetesSince: string; cgmSystem: string; insulinPump: string } | null | undefined,
-  t: { profileDeviceNone: string; profileDeviceOther: string; reportPatientHeader: (fields: { name: string; birthDate: string; diabetesSince: string; cgm: string; pump: string }) => string },
+  patientProfile: { firstName: string; lastName: string; birthDate: string; diabetesSince: string; cgmSystem: string; aidSystem: string; glucoseUnit: "MG_DL" | "MMOL_L" } | null | undefined,
+  t: { profileDeviceNone: string; profileDeviceOther: string; reportPatientHeader: (fields: { name: string; birthDate: string; diabetesSince: string; cgm: string; aid: string; unit: string }) => string },
 ): string {
   if (user?.userRole !== "FACHPERSONAL" || !patientProfile) return "";
   const name = [patientProfile.firstName, patientProfile.lastName].filter(Boolean).join(" ") || "--";
@@ -73,7 +79,8 @@ export function patientHeaderHtml(
     birthDate: patientProfile.birthDate || "--",
     diabetesSince: patientProfile.diabetesSince || "--",
     cgm: cgmLabel(patientProfile.cgmSystem, t),
-    pump: pumpLabel(patientProfile.insulinPump, t),
+    aid: aidLabel(patientProfile.aidSystem, t),
+    unit: patientProfile.glucoseUnit === "MMOL_L" ? "mmol/L" : "mg/dL",
   });
   return `<p class="patient-header"><strong>${escapeHtml(line)}</strong></p>`;
 }

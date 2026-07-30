@@ -490,6 +490,26 @@ _NATIVE_SOURCE_NAMES = {
     "glooko": "Glooko",
     "withings": "Withings",
 }
+# Settings key each native source's user-editable "Anzeigename" is stored under (Einstellungen ->
+# Datenquellen) -- see db.py's DEFAULT_SETTINGS. Falls back to _NATIVE_SOURCE_NAMES's plain
+# manufacturer name whenever unset/blank.
+_NATIVE_SOURCE_DISPLAY_NAME_KEYS = {
+    "nightscout": "nightscoutDisplayName",
+    "feelfit": "feelfitDisplayName",
+    "google_health": "googleHealthDisplayName",
+    "dexcom": "dexcomDisplayName",
+    "librelinkup": "libreDisplayName",
+    "glooko": "glookoDisplayName",
+    "withings": "withingsDisplayName",
+}
+
+
+def _native_source_name(source_id: str, settings: dict) -> str:
+    default = _NATIVE_SOURCE_NAMES.get(source_id, source_id)
+    key = _NATIVE_SOURCE_DISPLAY_NAME_KEYS.get(source_id)
+    return (settings.get(key) or default) if key else default
+
+
 _NATIVE_SOURCE_CATEGORY_KEYS = {
     "nightscout": "nightscoutCategory",
     "feelfit": "feelfitCategory",
@@ -517,7 +537,7 @@ def sources_by_id(available_tools: list[dict], settings: dict, mcp_servers: list
         if source_id in _NATIVE_SOURCE_NAMES:
             result[source_id] = {
                 "id": source_id,
-                "name": _NATIVE_SOURCE_NAMES[source_id],
+                "name": _native_source_name(source_id, settings),
                 "category": settings.get(_NATIVE_SOURCE_CATEGORY_KEYS[source_id], "GLUCOSE_TREATMENTS"),
                 "isRestApi": True,
             }
@@ -685,7 +705,7 @@ async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp
     native_result = await _dispatch_native(name, arguments, settings)
     if native_result is not None:
         source_id = _TOOL_NAME_TO_SOURCE_ID.get(name)
-        display_name = _NATIVE_SOURCE_NAMES.get(source_id, source_id) if source_id else name
+        display_name = _native_source_name(source_id, settings) if source_id else name
         return _cite_source(native_result, f"Quelle: {display_name} REST API")
     try:
         for server in mcp_servers:
@@ -1038,7 +1058,7 @@ async def _execute_withings(settings: dict) -> str:
         return f"Fehler beim Abruf der Withings-Daten: {exc}"
     if not result.readings:
         return "Keine Withings-Messungen in den letzten 3 Monaten gefunden."
-    lines = ["Quelle: Withings REST API (direkte API, letzte 3 Monate)", ""]
+    lines = [f"Quelle: {_native_source_name('withings', settings)} REST API (direkte API, letzte 3 Monate)", ""]
     for r in result.readings:
         date = time.strftime("%d.%m.%Y %H:%M", time.localtime(r.date_millis / 1000))
         parts = [date]

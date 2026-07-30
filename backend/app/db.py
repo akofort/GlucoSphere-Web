@@ -170,6 +170,16 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "googleHealthCategory": "ACTIVITY",
     "glookoCategory": "GLUCOSE_TREATMENTS",
     "withingsCategory": "BODY_METRICS",
+    # User-editable "Anzeigename" per native source (Einstellungen -> Datenquellen) -- defaults are
+    # the plain manufacturer name with no technical suffix (see tools.py::_native_source_name,
+    # used for chat source citations/disambiguation and the dashboard's combinedSourcesNote).
+    "nightscoutDisplayName": "Nightscout",
+    "dexcomDisplayName": "Dexcom",
+    "libreDisplayName": "LibreLinkUp",
+    "feelfitDisplayName": "FeelFit",
+    "googleHealthDisplayName": "Google Health",
+    "glookoDisplayName": "Glooko",
+    "withingsDisplayName": "Withings",
     # Bearer token for GlucoSphere-Web AS an MCP server (see mcp_server.py, /api/mcp) -- distinct
     # from `mcp_servers` above, which is this app acting as an MCP CLIENT of other servers. Empty
     # means "not yet generated"; AuthMiddleware rejects every /api/mcp request while empty.
@@ -276,6 +286,11 @@ def init_db() -> None:
         # "Einstellungen -> Erscheinungsbild" -- per-user like app_language (one browser login is
         # one person's own preference, not a shared device setting the way it is on Android).
         _add_column_if_missing(conn, "users", "color_theme", "TEXT NOT NULL DEFAULT 'MEDICAL_BLUE'")
+        # AID-System / Pumpe (automated insulin delivery) -- same per-Hauptpatient stammdata
+        # pattern as insulin_pump/cgm_system above, but distinct: insulin_pump is "which physical
+        # pump", aid_system is "which closed-loop algorithm" (commercial, e.g. Omnipod 5's own
+        # built-in algorithm, or DIY, e.g. AndroidAPS/OpenAPS/Loop/Trio running on a separate pump).
+        _add_column_if_missing(conn, "users", "aid_system", "TEXT NOT NULL DEFAULT 'NONE'")
         row = conn.execute("SELECT 1 FROM settings WHERE id = 1").fetchone()
         if row is None:
             conn.execute(
@@ -439,6 +454,7 @@ def _user_row_to_dict(r: sqlite3.Row) -> dict[str, Any]:
         "birthDate": r["birth_date"],
         "diabetesSince": r["diabetes_since"],
         "colorTheme": r["color_theme"],
+        "aidSystem": r["aid_system"],
         "createdAt": r["created_at"],
     }
 
@@ -510,16 +526,16 @@ def update_own_profile(
     user_id: str, display_name: str, user_role: str, app_language: str,
     glucose_unit: str = "MG_DL", insulin_pump: str = "NONE", cgm_system: str = "NONE",
     linked_main_user_id: str = "", last_name: str = "", birth_date: str = "", diabetes_since: str = "",
-    color_theme: str = "MEDICAL_BLUE",
+    color_theme: str = "MEDICAL_BLUE", aid_system: str = "NONE",
 ) -> dict[str, Any]:
     with get_conn() as conn:
         conn.execute(
             "UPDATE users SET display_name = ?, user_role = ?, app_language = ?, "
             "glucose_unit = ?, insulin_pump = ?, cgm_system = ?, linked_main_user_id = ?, "
-            "last_name = ?, birth_date = ?, diabetes_since = ?, color_theme = ? WHERE id = ?",
+            "last_name = ?, birth_date = ?, diabetes_since = ?, color_theme = ?, aid_system = ? WHERE id = ?",
             (
                 display_name, user_role, app_language, glucose_unit, insulin_pump, cgm_system,
-                linked_main_user_id, last_name, birth_date, diabetes_since, color_theme, user_id,
+                linked_main_user_id, last_name, birth_date, diabetes_since, color_theme, aid_system, user_id,
             ),
         )
     return get_user(user_id)  # type: ignore[return-value]

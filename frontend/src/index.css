@@ -24,6 +24,10 @@
   --rest-api-color: #1976d2;
   --mcp-color: #7b1fa2;
   font-family: "Segoe UI", Roboto, -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Tells the browser this theme is light, so native form-control chrome (caret, autofill,
+     scrollbars) matches instead of following the OS's own dark-mode default -- see
+     HIGH_CONTRAST_DARK's override below, and the explicit `color` on .chat-input-row textarea. */
+  color-scheme: light;
 }
 
 :root[data-theme="EMERALD_GREEN"] {
@@ -75,6 +79,7 @@
   --accent: #00e5ff;
   --on-accent: #000000;
   --border: #333333;
+  color-scheme: dark;
 }
 
 * {
@@ -658,11 +663,19 @@ details.card summary:first-child {
   border-radius: 20px;
   border: 1px solid var(--border);
   background: var(--surface);
+  /* Explicit, not relied-on inheritance -- without this, some browsers render typed text with
+     their default (light-theme) form-control color regardless of the surrounding dark background,
+     making it unreadable in HIGH_CONTRAST_DARK and any OS-dark-mode browser default. */
+  color: var(--text);
   font-family: inherit;
   resize: none;
   max-height: 160px;
   overflow-y: auto;
   line-height: 1.35;
+}
+
+.chat-input-row textarea::placeholder {
+  color: var(--text-muted);
 }
 
 .chat-input-row button {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import SettingsScaffold from "../../components/SettingsScaffold";
 import { api, type User } from "../../lib/api";
-import { CGM_SYSTEMS, INSULIN_PUMPS, cgmLabel, pumpLabel } from "../../lib/deviceLabels";
+import { AID_SYSTEMS_COMMERCIAL, AID_SYSTEMS_DIY, CGM_SYSTEMS, INSULIN_PUMPS, aidLabel, cgmLabel, pumpLabel } from "../../lib/deviceLabels";
 import { useLanguage } from "../../lib/LanguageContext";
 import { useAuth } from "../../lib/AuthContext";
 
@@ -69,6 +69,10 @@ function ReadOnlyProfile() {
         <label>{t.profileCgmSystemLabel}</label>
         <div>{cgmLabel(patientProfile.cgmSystem, t)}</div>
       </div>
+      <div className="field">
+        <label>{t.profileAidSystemLabel}</label>
+        <div>{aidLabel(patientProfile.aidSystem, t)}</div>
+      </div>
     </div>
   );
 }
@@ -84,6 +88,7 @@ function EditableProfile() {
   const [glucoseUnit, setGlucoseUnit] = useState<User["glucoseUnit"]>(u.glucoseUnit ?? "MG_DL");
   const [insulinPump, setInsulinPump] = useState(u.insulinPump ?? "NONE");
   const [cgmSystem, setCgmSystem] = useState(u.cgmSystem ?? "NONE");
+  const [aidSystem, setAidSystem] = useState(u.aidSystem ?? "NONE");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
@@ -91,7 +96,7 @@ function EditableProfile() {
     try {
       await api.updateOwnProfile({
         displayName: firstName, userRole: u.userRole, appLanguage: u.appLanguage,
-        glucoseUnit, insulinPump, cgmSystem, linkedMainUserId: u.linkedMainUserId,
+        glucoseUnit, insulinPump, cgmSystem, aidSystem, linkedMainUserId: u.linkedMainUserId,
         lastName, birthDate, diabetesSince,
       });
       await refresh();
@@ -142,6 +147,22 @@ function EditableProfile() {
           {CGM_SYSTEMS.map((id) => (
             <option key={id} value={id}>{cgmLabel(id, t)}</option>
           ))}
+        </select>
+      </div>
+      <div className="field">
+        <label>{t.profileAidSystemLabel}</label>
+        <select value={aidSystem} onChange={(e) => setAidSystem(e.target.value)}>
+          <option value="NONE">{t.profileDeviceNone}</option>
+          <optgroup label={t.profileAidCommercialGroup}>
+            {AID_SYSTEMS_COMMERCIAL.map((id) => (
+              <option key={id} value={id}>{aidLabel(id, t)}</option>
+            ))}
+          </optgroup>
+          <optgroup label={t.profileAidDiyGroup}>
+            {AID_SYSTEMS_DIY.map((id) => (
+              <option key={id} value={id}>{aidLabel(id, t)}</option>
+            ))}
+          </optgroup>
         </select>
       </div>
       <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.profileDeviceHint}</p>

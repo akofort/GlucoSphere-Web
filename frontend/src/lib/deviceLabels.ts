@@ -29,3 +29,27 @@ export function pumpLabel(id: string, t: Pick<Strings, "profileDeviceNone" | "pr
 export function cgmLabel(id: string, t: Pick<Strings, "profileDeviceNone" | "profileDeviceOther">): string {
   return id === "NONE" ? t.profileDeviceNone : id === "OTHER" ? t.profileDeviceOther : CGM_LABELS[id] ?? id;
 }
+
+// AID-System (Automated Insulin Delivery) -- distinct from INSULIN_PUMPS above: this is "which
+// closed-loop algorithm", not "which physical pump" (e.g. AndroidAPS/OpenAPS/Loop/Trio are DIY
+// algorithms that can run on top of various separate pumps, not pumps themselves).
+export const AID_SYSTEMS_COMMERCIAL = ["OMNIPOD_5", "YPSOPUMP_CAMAPS_FX", "CONTROL_IQ_TSLIM_X2", "MINIMED_780G", "OTHER_COMMERCIAL"];
+export const AID_SYSTEMS_DIY = ["ANDROIDAPS", "OPENAPS", "LOOP_IOS", "TRIO", "OTHER_DIY"];
+export const AID_SYSTEMS = ["NONE", ...AID_SYSTEMS_COMMERCIAL, ...AID_SYSTEMS_DIY];
+
+const AID_LABELS: Record<string, string> = {
+  OMNIPOD_5: "Omnipod 5",
+  YPSOPUMP_CAMAPS_FX: "YpsoPump (camAPS FX)",
+  CONTROL_IQ_TSLIM_X2: "Control-IQ (t:slim X2)",
+  MINIMED_780G: "MiniMed 780G",
+  ANDROIDAPS: "AndroidAPS",
+  OPENAPS: "OpenAPS",
+  LOOP_IOS: "Loop (iOS)",
+  TRIO: "Trio",
+};
+
+export function aidLabel(id: string, t: Pick<Strings, "profileDeviceNone" | "profileDeviceOther">): string {
+  if (id === "NONE") return t.profileDeviceNone;
+  if (id === "OTHER_COMMERCIAL" || id === "OTHER_DIY") return t.profileDeviceOther;
+  return AID_LABELS[id] ?? id;
+}

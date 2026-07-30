@@ -184,6 +184,7 @@ class UpdateProfileRequest(BaseModel):
     birthDate: str | None = None
     diabetesSince: str | None = None
     colorTheme: str | None = None
+    aidSystem: str | None = None
 
 
 @app.put("/api/users/me")
@@ -201,6 +202,7 @@ def update_own_profile(req: UpdateProfileRequest, user: dict = Depends(current_u
         req.birthDate if req.birthDate is not None else user.get("birthDate", ""),
         req.diabetesSince if req.diabetesSince is not None else user.get("diabetesSince", ""),
         req.colorTheme if req.colorTheme is not None else user.get("colorTheme", "MEDICAL_BLUE"),
+        req.aidSystem if req.aidSystem is not None else user.get("aidSystem", "NONE"),
     )
 
 
@@ -229,6 +231,7 @@ def get_patient_profile(user: dict = Depends(current_user)) -> dict:
         "glucoseUnit": main["glucoseUnit"],
         "insulinPump": main["insulinPump"],
         "cgmSystem": main["cgmSystem"],
+        "aidSystem": main.get("aidSystem", "NONE"),
         "isEditable": main["id"] == user["id"],
     }
 
@@ -598,11 +601,11 @@ def _available_dashboard_sources(settings: dict) -> list[dict]:
         # The direct Nightscout API is always treated as realtime -- it's the one source type
         # that has no LLM-assisted extraction lag and, per user experience, "usually has realtime
         # data" (unlike e.g. Glooko, which can lag hours behind).
-        sources.append({"id": "nightscout", "name": "Nightscout", "category": "GLUCOSE_TREATMENTS", "computesMetrics": True, "isRealtime": True, "server": None})
+        sources.append({"id": "nightscout", "name": settings.get("nightscoutDisplayName") or "Nightscout", "category": "GLUCOSE_TREATMENTS", "computesMetrics": True, "isRealtime": True, "server": None})
     if settings.get("dexcomUsername") and settings.get("dexcomEnabled", True):
-        sources.append({"id": "dexcom", "name": "Dexcom", "category": "GLUCOSE_TREATMENTS", "computesMetrics": True, "isRealtime": True, "server": None})
+        sources.append({"id": "dexcom", "name": settings.get("dexcomDisplayName") or "Dexcom", "category": "GLUCOSE_TREATMENTS", "computesMetrics": True, "isRealtime": True, "server": None})
     if settings.get("libreEmail") and settings.get("libreEnabled", True):
-        sources.append({"id": "librelinkup", "name": "LibreLinkUp", "category": "GLUCOSE_TREATMENTS", "computesMetrics": True, "isRealtime": True, "server": None})
+        sources.append({"id": "librelinkup", "name": settings.get("libreDisplayName") or "LibreLinkUp", "category": "GLUCOSE_TREATMENTS", "computesMetrics": True, "isRealtime": True, "server": None})
     for server in db.list_mcp_servers():
         if server.get("enabled") and server.get("category") == "GLUCOSE_TREATMENTS":
             sources.append({
@@ -835,6 +838,10 @@ async def get_dashboard(
             summary, tips = _parse_narrative(chat_result.text)
             result["summaryText"] = summary
             result["tips"] = tips
+            # Item 6's dashboard transparency: which provider/model actually produced this
+            # narrative, shown under the summary in OverviewPage.tsx ("Ausgewertet mit: ...").
+            result["narrativeProvider"] = provider_type
+            result["narrativeModel"] = chat_result.model
             db.add_log_entry(
                 provider_type, chat_result.model, "ANALYSIS", int((time.monotonic() - start) * 1000), True,
                 chat_result.prompt_tokens, chat_result.completion_tokens,

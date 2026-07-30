@@ -140,6 +140,7 @@ export default function DataSourcesPage() {
   const [token, setToken] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [category, setCategory] = useState("GLUCOSE_TREATMENTS");
+  const [nightscoutDisplayName, setNightscoutDisplayName] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -148,6 +149,7 @@ export default function DataSourcesPage() {
   const [feelfitPassword, setFeelfitPassword] = useState("");
   const [feelfitEnabled, setFeelfitEnabled] = useState(true);
   const [feelfitCategory, setFeelfitCategory] = useState("BODY_METRICS");
+  const [feelfitDisplayName, setFeelfitDisplayName] = useState("");
   const [feelfitTestResult, setFeelfitTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [feelfitTesting, setFeelfitTesting] = useState(false);
   const [feelfitSaving, setFeelfitSaving] = useState(false);
@@ -157,6 +159,7 @@ export default function DataSourcesPage() {
   const [dexcomRegion, setDexcomRegion] = useState<Settings["dexcomRegion"]>("US");
   const [dexcomEnabled, setDexcomEnabled] = useState(true);
   const [dexcomCategory, setDexcomCategory] = useState("GLUCOSE_TREATMENTS");
+  const [dexcomDisplayName, setDexcomDisplayName] = useState("");
   const [dexcomTestResult, setDexcomTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [dexcomTesting, setDexcomTesting] = useState(false);
   const [dexcomSaving, setDexcomSaving] = useState(false);
@@ -165,6 +168,7 @@ export default function DataSourcesPage() {
   const [librePassword, setLibrePassword] = useState("");
   const [libreEnabled, setLibreEnabled] = useState(true);
   const [libreCategory, setLibreCategory] = useState("GLUCOSE_TREATMENTS");
+  const [libreDisplayName, setLibreDisplayName] = useState("");
   const [libreTestResult, setLibreTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [libreTesting, setLibreTesting] = useState(false);
   const [libreSaving, setLibreSaving] = useState(false);
@@ -173,6 +177,7 @@ export default function DataSourcesPage() {
   const [glookoPassword, setGlookoPassword] = useState("");
   const [glookoEnabled, setGlookoEnabled] = useState(true);
   const [glookoCategory, setGlookoCategory] = useState("GLUCOSE_TREATMENTS");
+  const [glookoDisplayName, setGlookoDisplayName] = useState("");
   const [glookoTestResult, setGlookoTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [glookoTesting, setGlookoTesting] = useState(false);
   const [glookoSaving, setGlookoSaving] = useState(false);
@@ -183,6 +188,7 @@ export default function DataSourcesPage() {
   const [googleHealthClientSecret, setGoogleHealthClientSecret] = useState("");
   const [googleHealthEnabled, setGoogleHealthEnabled] = useState(true);
   const [googleHealthCategory, setGoogleHealthCategory] = useState("ACTIVITY");
+  const [googleHealthDisplayName, setGoogleHealthDisplayName] = useState("");
   const [googleHealthLoggedIn, setGoogleHealthLoggedIn] = useState(false);
   const [googleHealthTestResult, setGoogleHealthTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [googleHealthTesting, setGoogleHealthTesting] = useState(false);
@@ -195,6 +201,7 @@ export default function DataSourcesPage() {
   const [withingsClientSecret, setWithingsClientSecret] = useState("");
   const [withingsEnabled, setWithingsEnabled] = useState(true);
   const [withingsCategory, setWithingsCategory] = useState("BODY_METRICS");
+  const [withingsDisplayName, setWithingsDisplayName] = useState("");
   const [withingsLoggedIn, setWithingsLoggedIn] = useState(false);
   const [withingsTestResult, setWithingsTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [withingsTesting, setWithingsTesting] = useState(false);
@@ -218,33 +225,40 @@ export default function DataSourcesPage() {
       setToken(s.nightscoutApiSecret);
       setEnabled(s.nightscoutApiEnabled);
       setCategory(s.nightscoutCategory);
+      setNightscoutDisplayName(s.nightscoutDisplayName);
       setFeelfitEmail(s.feelfitEmail);
       setFeelfitPassword(s.feelfitPassword);
       setFeelfitEnabled(s.feelfitEnabled);
       setFeelfitCategory(s.feelfitCategory);
+      setFeelfitDisplayName(s.feelfitDisplayName);
       setGoogleHealthClientId(s.googleHealthClientId);
       setGoogleHealthClientSecret(s.googleHealthClientSecret);
       setGoogleHealthEnabled(s.googleHealthEnabled);
       setGoogleHealthCategory(s.googleHealthCategory);
+      setGoogleHealthDisplayName(s.googleHealthDisplayName);
       setGoogleHealthLoggedIn(Boolean(s.googleHealthRefreshToken));
       setWithingsClientId(s.withingsClientId);
       setWithingsClientSecret(s.withingsClientSecret);
       setWithingsEnabled(s.withingsEnabled);
       setWithingsCategory(s.withingsCategory);
+      setWithingsDisplayName(s.withingsDisplayName);
       setWithingsLoggedIn(Boolean(s.withingsRefreshToken));
       setDexcomUsername(s.dexcomUsername);
       setDexcomPassword(s.dexcomPassword);
       setDexcomRegion(s.dexcomRegion);
       setDexcomEnabled(s.dexcomEnabled);
       setDexcomCategory(s.dexcomCategory);
+      setDexcomDisplayName(s.dexcomDisplayName);
       setLibreEmail(s.libreEmail);
       setLibrePassword(s.librePassword);
       setLibreEnabled(s.libreEnabled);
       setLibreCategory(s.libreCategory);
+      setLibreDisplayName(s.libreDisplayName);
       setGlookoUsername(s.glookoUsername);
       setGlookoPassword(s.glookoPassword);
       setGlookoEnabled(s.glookoEnabled);
       setGlookoCategory(s.glookoCategory);
+      setGlookoDisplayName(s.glookoDisplayName);
     });
     // Auto health-check on page load: fires in parallel with the settings/servers fetches above,
     // and can take a while (it logs into every configured source) -- errors are caught inside
@@ -268,7 +282,7 @@ export default function DataSourcesPage() {
     setGoogleHealthSaving(true);
     try {
       const updated = await api.updateSettings({
-        googleHealthClientId, googleHealthClientSecret, googleHealthEnabled, googleHealthCategory,
+        googleHealthClientId, googleHealthClientSecret, googleHealthEnabled, googleHealthCategory, googleHealthDisplayName,
       });
       setSettings(updated);
     } finally {
@@ -321,7 +335,7 @@ export default function DataSourcesPage() {
     setWithingsSaving(true);
     try {
       const updated = await api.updateSettings({
-        withingsClientId, withingsClientSecret, withingsEnabled, withingsCategory,
+        withingsClientId, withingsClientSecret, withingsEnabled, withingsCategory, withingsDisplayName,
       });
       setSettings(updated);
     } finally {
@@ -382,6 +396,7 @@ export default function DataSourcesPage() {
         nightscoutApiSecret: token,
         nightscoutApiEnabled: enabled,
         nightscoutCategory: category,
+        nightscoutDisplayName,
       });
       setSettings(updated);
     } finally {
@@ -415,7 +430,7 @@ export default function DataSourcesPage() {
     setFeelfitSaving(true);
     try {
       const updated = await api.updateSettings({
-        feelfitEmail, feelfitPassword, feelfitEnabled, feelfitCategory,
+        feelfitEmail, feelfitPassword, feelfitEnabled, feelfitCategory, feelfitDisplayName,
       });
       setSettings(updated);
     } finally {
@@ -445,7 +460,7 @@ export default function DataSourcesPage() {
   const saveDexcom = async () => {
     setDexcomSaving(true);
     try {
-      const updated = await api.updateSettings({ dexcomUsername, dexcomPassword, dexcomRegion, dexcomEnabled, dexcomCategory });
+      const updated = await api.updateSettings({ dexcomUsername, dexcomPassword, dexcomRegion, dexcomEnabled, dexcomCategory, dexcomDisplayName });
       setSettings(updated);
     } finally {
       setDexcomSaving(false);
@@ -474,7 +489,7 @@ export default function DataSourcesPage() {
   const saveLibre = async () => {
     setLibreSaving(true);
     try {
-      const updated = await api.updateSettings({ libreEmail, librePassword, libreEnabled, libreCategory });
+      const updated = await api.updateSettings({ libreEmail, librePassword, libreEnabled, libreCategory, libreDisplayName });
       setSettings(updated);
     } finally {
       setLibreSaving(false);
@@ -503,7 +518,7 @@ export default function DataSourcesPage() {
   const saveGlooko = async () => {
     setGlookoSaving(true);
     try {
-      const updated = await api.updateSettings({ glookoUsername, glookoPassword, glookoEnabled, glookoCategory });
+      const updated = await api.updateSettings({ glookoUsername, glookoPassword, glookoEnabled, glookoCategory, glookoDisplayName });
       setSettings(updated);
     } finally {
       setGlookoSaving(false);
@@ -596,6 +611,11 @@ export default function DataSourcesPage() {
             ))}
           </select>
         </div>
+        <div className="field">
+          <label>{t.dsDisplayNameLabel}</label>
+          <input type="text" value={nightscoutDisplayName} onChange={(e) => setNightscoutDisplayName(e.target.value)} />
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
+        </div>
 
         {testResult && <div className={`test-result ${testResult.ok ? "ok" : "error"}`}>{testResult.message}</div>}
 
@@ -645,6 +665,11 @@ export default function DataSourcesPage() {
             ))}
           </select>
         </div>
+        <div className="field">
+          <label>{t.dsDisplayNameLabel}</label>
+          <input type="text" value={dexcomDisplayName} onChange={(e) => setDexcomDisplayName(e.target.value)} />
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
+        </div>
 
         {dexcomTestResult && <div className={`test-result ${dexcomTestResult.ok ? "ok" : "error"}`}>{dexcomTestResult.message}</div>}
 
@@ -686,6 +711,11 @@ export default function DataSourcesPage() {
               <option key={id} value={id}>{label}</option>
             ))}
           </select>
+        </div>
+        <div className="field">
+          <label>{t.dsDisplayNameLabel}</label>
+          <input type="text" value={libreDisplayName} onChange={(e) => setLibreDisplayName(e.target.value)} />
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
         </div>
 
         {libreTestResult && <div className={`test-result ${libreTestResult.ok ? "ok" : "error"}`}>{libreTestResult.message}</div>}
@@ -738,6 +768,11 @@ export default function DataSourcesPage() {
             ))}
           </select>
         </div>
+        <div className="field">
+          <label>{t.dsDisplayNameLabel}</label>
+          <input type="text" value={feelfitDisplayName} onChange={(e) => setFeelfitDisplayName(e.target.value)} />
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
+        </div>
 
         {feelfitTestResult && (
           <div className={`test-result ${feelfitTestResult.ok ? "ok" : "error"}`}>{feelfitTestResult.message}</div>
@@ -789,6 +824,11 @@ export default function DataSourcesPage() {
               <option key={id} value={id}>{label}</option>
             ))}
           </select>
+        </div>
+        <div className="field">
+          <label>{t.dsDisplayNameLabel}</label>
+          <input type="text" value={googleHealthDisplayName} onChange={(e) => setGoogleHealthDisplayName(e.target.value)} />
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
         </div>
 
         <div style={{ fontSize: "0.85rem", margin: "8px 0" }}>
@@ -860,6 +900,11 @@ export default function DataSourcesPage() {
             ))}
           </select>
         </div>
+        <div className="field">
+          <label>{t.dsDisplayNameLabel}</label>
+          <input type="text" value={withingsDisplayName} onChange={(e) => setWithingsDisplayName(e.target.value)} />
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
+        </div>
 
         <div style={{ fontSize: "0.85rem", margin: "8px 0" }}>
           {withingsLoggedIn ? `✅ ${t.dataSourcesWithingsLoggedIn}` : `⚪ ${t.dataSourcesWithingsNotLoggedIn}`}
@@ -914,6 +959,11 @@ export default function DataSourcesPage() {
               <option key={id} value={id}>{label}</option>
             ))}
           </select>
+        </div>
+        <div className="field">
+          <label>{t.dsDisplayNameLabel}</label>
+          <input type="text" value={glookoDisplayName} onChange={(e) => setGlookoDisplayName(e.target.value)} />
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
         </div>
 
         {glookoTestResult && <div className={`test-result ${glookoTestResult.ok ? "ok" : "error"}`}>{glookoTestResult.message}</div>}

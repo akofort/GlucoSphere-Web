@@ -7,6 +7,16 @@ import { useLanguage } from "../lib/LanguageContext";
 import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
 import { stripMarkdownForSpeech, ttsSupported } from "../lib/tts";
 
+// Short, clean provider names for the dashboard transparency line ("Ausgewertet mit: ...") --
+// distinct from model_catalog.PROVIDER_LABELS on the backend, which include suffixes like "API"/
+// "(empfohlen)" meant for the LLM-config picker, not a one-line attribution under a summary.
+const PROVIDER_SHORT_LABELS: Record<string, string> = {
+  GEMINI: "Google Gemini",
+  CLAUDE: "Anthropic Claude",
+  OPENAI: "OpenAI / OpenRouter",
+  DEEPSEEK: "DeepSeek",
+};
+
 const RANGES = [
   { hours: 6, label: "6h" },
   { hours: 24, label: "24h" },
@@ -502,6 +512,11 @@ export default function OverviewPage() {
                       <li key={i}>{tip}</li>
                     ))}
                   </ul>
+                )}
+                {dashboard.narrativeProvider && dashboard.narrativeModel && (
+                  <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 10, marginBottom: 0 }}>
+                    {t.overviewAnalyzedWith(PROVIDER_SHORT_LABELS[dashboard.narrativeProvider] ?? dashboard.narrativeProvider, dashboard.narrativeModel)}
+                  </p>
                 )}
               </div>
             )}
