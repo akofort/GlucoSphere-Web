@@ -5,10 +5,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type ChatMessage, type ChatSession, type SourceOption } from "../lib/api";
 import { ClockIcon, DocumentIcon, LogoutIcon, PencilIcon, SpeakerIcon, StopIcon, TrashIcon } from "../components/Icons";
+import MarkdownAnswer from "../components/MarkdownAnswer";
 import NoticeList from "../components/NoticeList";
 import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
-import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
+import { attributionHtml, escapeHtml, noticesHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
+import { PROVIDER_SHORT_LABELS, providerLabel } from "../lib/providerLabels";
 import { stripMarkdownForSpeech, ttsSupported } from "../lib/tts";
 
 function markdownToHtml(content: string): string {
@@ -210,6 +212,8 @@ export default function ChatPage() {
       ${patientHeaderHtml(user, patientProfile, t)}
       ${question?.role === "user" ? `<h2>${t.navChat}</h2><p><strong>${escapeHtml(question.content)}</strong></p>` : ""}
       <div class="markdown">${markdownToHtml(message.content)}</div>
+      ${attributionHtml(message.provider, message.model, message.sources, t, providerLabel)}
+      ${noticesHtml(message.notices)}
     `;
     printAsPdf("GlucoSphere - " + t.navChat, body);
   };
@@ -291,7 +295,12 @@ export default function ChatPage() {
               >
                 {m.role === "assistant" ? (
                   <div className="markdown-content">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    {/* Suggested questions in the answer ("Was kann ich dich fragen?") are
+                        clickable and get sent straight into this chat -- see MarkdownAnswer. */}
+                    <MarkdownAnswer
+                      content={m.content}
+                      onAskQuestion={sending ? null : (question) => send(question, sessionId)}
+                    />
                   </div>
                 ) : (
                   m.content
@@ -312,6 +321,19 @@ export default function ChatPage() {
                 {m.role === "assistant" && m.durationMs != null && ` · ⚡ ${(m.durationMs / 1000).toFixed(1)}s`}
                 {m.success === false && ` · ⚠️ ${t.chatFailed}`}
               </div>
+              {/* Same attribution as the Übersicht: which model answered, and directly below it
+                  which data sources were actually queried for this answer. */}
+              {m.role === "assistant" && (m.provider || (m.sources?.length ?? 0) > 0) && (
+                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 2 }}>
+                  {m.provider && m.model && (
+                    <>
+                      {t.overviewAnalyzedWith(PROVIDER_SHORT_LABELS[m.provider] ?? m.provider, m.model)}
+                      {(m.sources?.length ?? 0) > 0 && <br />}
+                    </>
+                  )}
+                  {(m.sources?.length ?? 0) > 0 && t.analyzedSources(m.sources!.join(", "))}
+                </div>
+              )}
               {m.role === "assistant" && m.id !== -1 && (
                 <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: "0.75rem" }}>
                   <button

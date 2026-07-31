@@ -172,31 +172,62 @@ class StatusEvaluation:
     reason: str
 
 
-def compute_status(m: DashboardMetrics) -> StatusEvaluation:
-    """Same thresholds as the Android app's `computeStatus` (`DiabetesDashboardManager.kt`)."""
+def compute_status(m: DashboardMetrics, is_en: bool = False) -> StatusEvaluation:
+    """Same thresholds as the Android app's `computeStatus` (`DiabetesDashboardManager.kt`).
+
+    `status` stays language-independent (the UI colors off it); only `reason` follows the app
+    language -- it is rendered verbatim under the traffic light, so a German sentence on an English
+    dashboard is simply wrong."""
     red_reasons = []
     if m.severe_hypo_percent > 1.0:
-        red_reasons.append(f"schweren Unterzuckerungen ({m.severe_hypo_percent:.1f}% > 1%)")
+        red_reasons.append(
+            f"severe hypoglycemia ({m.severe_hypo_percent:.1f}% > 1%)" if is_en
+            else f"schweren Unterzuckerungen ({m.severe_hypo_percent:.1f}% > 1%)"
+        )
     if m.hypo_percent > 10.0:
-        red_reasons.append(f"Unterzuckerungen über 10% der Zeit ({m.hypo_percent:.1f}%)")
+        red_reasons.append(
+            f"hypoglycemia more than 10% of the time ({m.hypo_percent:.1f}%)" if is_en
+            else f"Unterzuckerungen über 10% der Zeit ({m.hypo_percent:.1f}%)"
+        )
     if m.tir_percent < 50.0:
-        red_reasons.append(f"Time in Range unter 50% ({m.tir_percent:.1f}%)")
+        red_reasons.append(
+            f"Time in Range below 50% ({m.tir_percent:.1f}%)" if is_en
+            else f"Time in Range unter 50% ({m.tir_percent:.1f}%)"
+        )
     if red_reasons:
-        return StatusEvaluation("RED", f"Status ROT aufgrund von {' und '.join(red_reasons)}.")
+        joined = (" and " if is_en else " und ").join(red_reasons)
+        return StatusEvaluation("RED", f"Status RED due to {joined}." if is_en else f"Status ROT aufgrund von {joined}.")
 
     yellow_reasons = []
     if 4.0 <= m.hypo_percent <= 10.0:
-        yellow_reasons.append(f"erhöhtem Unterzuckerungs-Anteil ({m.hypo_percent:.1f}%, Bereich 4-10%)")
+        yellow_reasons.append(
+            f"an elevated share of hypoglycemia ({m.hypo_percent:.1f}%, range 4-10%)" if is_en
+            else f"erhöhtem Unterzuckerungs-Anteil ({m.hypo_percent:.1f}%, Bereich 4-10%)"
+        )
     if 50.0 <= m.tir_percent <= 70.0:
-        yellow_reasons.append(f"Time in Range im mittleren Bereich ({m.tir_percent:.1f}%, 50-70%)")
+        yellow_reasons.append(
+            f"Time in Range in the middle band ({m.tir_percent:.1f}%, 50-70%)" if is_en
+            else f"Time in Range im mittleren Bereich ({m.tir_percent:.1f}%, 50-70%)"
+        )
     if m.cv_percent > 36.0:
-        yellow_reasons.append(f"erhöhter Blutzucker-Variabilität (%CV = {m.cv_percent:.1f}%, > 36%)")
+        yellow_reasons.append(
+            f"elevated glucose variability (%CV = {m.cv_percent:.1f}%, > 36%)" if is_en
+            else f"erhöhter Blutzucker-Variabilität (%CV = {m.cv_percent:.1f}%, > 36%)"
+        )
     if yellow_reasons:
+        joined = (" and " if is_en else " und ").join(yellow_reasons)
         tir_is_good = m.tir_percent > 70.0
+        if is_en:
+            suffix = f" despite a good Time in Range ({m.tir_percent:.1f}%)" if tir_is_good else ""
+            return StatusEvaluation("YELLOW", f"Status YELLOW due to {joined}{suffix}.")
         suffix = f" trotz guter Time in Range ({m.tir_percent:.1f}%)" if tir_is_good else ""
-        return StatusEvaluation("YELLOW", f"Status GELB aufgrund {' und '.join(yellow_reasons)}{suffix}.")
+        return StatusEvaluation("YELLOW", f"Status GELB aufgrund {joined}{suffix}.")
 
-    return StatusEvaluation("GREEN", "Status GRÜN -- alle Werte im empfohlenen Zielbereich.")
+    return StatusEvaluation(
+        "GREEN",
+        "Status GREEN -- all values within the recommended target range." if is_en
+        else "Status GRÜN -- alle Werte im empfohlenen Zielbereich.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -245,14 +276,23 @@ def detect_gaps(
 # main.py::send_message scans tool output for exactly this prefix to lift them back out as
 # structured notices for the UI -- so the marker must stay a single shared constant.
 NOTICE_PREFIX = "⚠️ Hinweis:"
+NOTICE_PREFIX_EN = "⚠️ Note:"
+# Both, because a chat turn's tool results are scanned for these lines (see main.py's
+# _extract_notices) and the language depends on the account that asked.
+NOTICE_PREFIXES = (NOTICE_PREFIX, NOTICE_PREFIX_EN)
 
 
-def format_gap_warning(source_name: str, gap: DataGap) -> str:
+def format_gap_warning(source_name: str, gap: DataGap, is_en: bool = False) -> str:
     """Item 3's exact required warning wording -- one instance per detected gap. Both the chat
     tool output (tools.py) and the Übersicht/report path (main.py) call this so the wording never
     drifts between the two surfaces."""
     start = time.strftime("%d.%m.%Y %H:%M", time.localtime(gap.start_millis / 1000))
     end = time.strftime("%d.%m.%Y %H:%M", time.localtime(gap.end_millis / 1000))
+    if is_en:
+        return (
+            f"{NOTICE_PREFIX_EN} Source {source_name} has no data between {start} and {end}. "
+            "The analysis only takes the available data points into account."
+        )
     return (
         f"{NOTICE_PREFIX} In der Quelle {source_name} fehlen Daten im Zeitraum von {start} bis {end}. "
         "Die Auswertung berücksichtigt ausschließlich die verfügbaren Datenpunkte."

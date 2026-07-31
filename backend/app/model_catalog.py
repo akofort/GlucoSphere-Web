@@ -65,12 +65,18 @@ def is_known_model(provider_type: str, model_id: str) -> bool:
     return any(m.id == model_id for m in options_for(provider_type))
 
 
-def resolve(provider_type: str, selection: str, purpose: str = "CHAT") -> str:
+def resolve(provider_type: str, selection: str, purpose: str = "CHAT", live_models: list[str] | None = None) -> str:
     """`purpose` is "CHAT" (fast/light model) or "ANALYSIS" (flagship model) -- mirrors
-    `ModelCatalog.resolve`'s per-purpose "Automatisch" pick."""
+    `ModelCatalog.resolve`'s per-purpose "Automatisch" pick.
+
+    `live_models` are the ids from a live provider refresh (see model_discovery.build_live_catalog,
+    cached in settings["providerModelCache"]). When present they take precedence over the built-in
+    catalog: once the picker offers live models, "Automatisch" must resolve to one of THOSE, not to
+    a hard-coded id that the account may no longer be able to call. Both lists share the same
+    ordering contract -- first entry fast, last entry flagship."""
     if selection != AUTO_MODEL_ID:
         return selection
-    options = options_for(provider_type)
-    if not options:
+    ids = list(live_models) if live_models else [m.id for m in options_for(provider_type)]
+    if not ids:
         return selection
-    return options[0].id if purpose == "CHAT" else options[-1].id
+    return ids[0] if purpose == "CHAT" else ids[-1]

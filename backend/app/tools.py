@@ -24,6 +24,7 @@ WITHINGS_WORKOUTS_TOOL_NAME = "get_withings_workouts"
 GOOGLE_HEALTH_TOOL_NAME = "get_google_health_blood_glucose"
 GOOGLE_HEALTH_SLEEP_TOOL_NAME = "get_google_health_sleep"
 GOOGLE_HEALTH_STEPS_TOOL_NAME = "get_google_health_steps"
+GOOGLE_HEALTH_ACTIVITY_TOOL_NAME = "get_google_health_activity"
 GOOGLE_HEALTH_HEART_RATE_TOOL_NAME = "get_google_health_heart_rate"
 GOOGLE_HEALTH_RESTING_HEART_RATE_TOOL_NAME = "get_google_health_resting_heart_rate"
 GOOGLE_HEALTH_HRV_TOOL_NAME = "get_google_health_hrv"
@@ -224,8 +225,22 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
             })
             tools.append({
                 "name": GOOGLE_HEALTH_STEPS_TOOL_NAME,
-                "description": "Ruft die Schrittzahl über die Google Health API für einen Zeitraum ab (einzelne "
-                               "Zeitintervalle mit jeweiliger Schrittzahl) -- z. B. von einer verbundenen Smartwatch.",
+                "description": "Ruft die Schrittzahl über die Google Health API für einen Zeitraum ab -- Summe pro "
+                               "Kalendertag (von Google quellenübergreifend zusammengeführt, Doppelzählung von Uhr "
+                               "und Handy ist bereits herausgerechnet), bei Zeiträumen bis 48 Stunden zusätzlich die "
+                               "einzelnen Intervalle innerhalb des Tages. Quelle ist z. B. eine verbundene Smartwatch "
+                               "oder das Handy.",
+                "inputSchema": _GOOGLE_HEALTH_SCHEMA,
+                "_source": "google_health",
+                "_realtime": False,
+            })
+            tools.append({
+                "name": GOOGLE_HEALTH_ACTIVITY_TOOL_NAME,
+                "description": "Ruft die tägliche Aktivitäts-Zusammenfassung über die Google Health API ab: Schritte, "
+                               "zurückgelegte Distanz, aktive Minuten und aktiv verbrannte Kalorien -- eine Zeile pro "
+                               "Tag. Für Fragen nach Bewegung/Aktivität über mehrere Tage besser geeignet als die "
+                               "reine Schrittzahl. HINWEIS: aktive Minuten und Kalorien liefert die API nur für die "
+                               "letzten 14 Tage, Schritte und Distanz für bis zu 90 Tage.",
                 "inputSchema": _GOOGLE_HEALTH_SCHEMA,
                 "_source": "google_health",
                 "_realtime": False,
@@ -552,6 +567,23 @@ def sources_by_id(available_tools: list[dict], settings: dict, mcp_servers: list
     return result
 
 
+def source_names_for_tools(
+    used_tool_names: list[str], available_tools: list[dict], settings: dict, mcp_servers: list[dict],
+) -> list[str]:
+    """Display names of the data sources the tools actually called this turn belong to -- shown as
+    "Quelle(n): ..." under a chat answer. Order follows first use, duplicates dropped, so a turn
+    that hit Nightscout three times and Glooko once reads "Nightscout, Glooko"."""
+    sources = sources_by_id(available_tools, settings, mcp_servers)
+    tool_to_source = {t["name"]: t["_source"] for t in available_tools}
+    names: list[str] = []
+    for tool_name in used_tool_names:
+        source = sources.get(tool_to_source.get(tool_name, ""))
+        name = source["name"] if source else None
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 async def resolve_server_auth(server: dict, force_refresh: bool = False) -> dict:
     """OAuth2 servers store a client id/secret/endpoints, not a manually entered token --
     resolves (refreshing if needed) a current access token and returns a server dict shaped like
@@ -599,6 +631,7 @@ _TOOL_NAME_TO_SOURCE_ID = {
     GOOGLE_HEALTH_TOOL_NAME: "google_health",
     GOOGLE_HEALTH_SLEEP_TOOL_NAME: "google_health",
     GOOGLE_HEALTH_STEPS_TOOL_NAME: "google_health",
+    GOOGLE_HEALTH_ACTIVITY_TOOL_NAME: "google_health",
     GOOGLE_HEALTH_HEART_RATE_TOOL_NAME: "google_health",
     GOOGLE_HEALTH_RESTING_HEART_RATE_TOOL_NAME: "google_health",
     GOOGLE_HEALTH_HRV_TOOL_NAME: "google_health",
@@ -631,11 +664,11 @@ def _cite_source(result: str, citation: str) -> str:
     return f"{citation}\n\n{result}"
 
 
-async def _dispatch_native(name: str, arguments: dict[str, Any], settings: dict) -> str | None:
+async def _dispatch_native(name: str, arguments: dict[str, Any], settings: dict, is_en: bool = False) -> str | None:
     """The native (non-MCP) tool dispatch chain -- returns None for a tool name it doesn't
     recognize, so `execute_tool` below falls through to the MCP-server lookup."""
     if name == NIGHTSCOUT_TOOL_NAME:
-        return await _execute_nightscout(arguments, settings)
+        return await _execute_nightscout(arguments, settings, is_en)
     if name == NIGHTSCOUT_TREATMENTS_TOOL_NAME:
         return await _execute_nightscout_treatments(arguments, settings)
     if name == NIGHTSCOUT_PROFILE_TOOL_NAME:
@@ -650,6 +683,8 @@ async def _dispatch_native(name: str, arguments: dict[str, Any], settings: dict)
         return await _execute_google_health_sleep(arguments, settings)
     if name == GOOGLE_HEALTH_STEPS_TOOL_NAME:
         return await _execute_google_health_steps(arguments, settings)
+    if name == GOOGLE_HEALTH_ACTIVITY_TOOL_NAME:
+        return await _execute_google_health_activity(arguments, settings)
     if name == GOOGLE_HEALTH_HEART_RATE_TOOL_NAME:
         return await _execute_google_health_heart_rate(arguments, settings)
     if name == GOOGLE_HEALTH_RESTING_HEART_RATE_TOOL_NAME:
@@ -693,7 +728,9 @@ async def _dispatch_native(name: str, arguments: dict[str, Any], settings: dict)
     return None
 
 
-async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp_servers: list[dict]) -> str:
+async def execute_tool(
+    name: str, arguments: dict[str, Any], settings: dict, mcp_servers: list[dict], is_en: bool = False,
+) -> str:
     """Never raises -- a failed tool call (server down, network blip, ...) is fed back to the
     model as an error-flavored tool result instead of crashing the whole chat request. The model
     can then tell the user what happened instead of the request 500ing (observed live: a
@@ -702,7 +739,7 @@ async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp
     Every result gets an explicit "Quelle: ..." header via `_cite_source` (item 3's "Transparente
     Quellenangabe") before it's handed back -- native tools cite "{Anbieter} REST API", MCP tools
     cite "{Servername} MCP", matching the two example phrasings from the request."""
-    native_result = await _dispatch_native(name, arguments, settings)
+    native_result = await _dispatch_native(name, arguments, settings, is_en)
     if native_result is not None:
         source_id = _TOOL_NAME_TO_SOURCE_ID.get(name)
         display_name = _native_source_name(source_id, settings) if source_id else name
@@ -731,7 +768,7 @@ async def execute_tool(name: str, arguments: dict[str, Any], settings: dict, mcp
         return f"Fehler beim Aufruf von '{name}': {exc}"
 
 
-async def _execute_nightscout(arguments: dict[str, Any], settings: dict) -> str:
+async def _execute_nightscout(arguments: dict[str, Any], settings: dict, is_en: bool = False) -> str:
     now = int(time.time() * 1000)
     from_millis = int(arguments.get("fromEpochMillis") or now - 24 * 60 * 60 * 1000)
     to_millis = int(arguments.get("toEpochMillis") or now)
@@ -755,7 +792,11 @@ async def _execute_nightscout(arguments: dict[str, Any], settings: dict) -> str:
     gaps = nightscout.detect_gaps(entries, from_millis, to_millis)
     if gaps:
         lines.append("")
-        lines.extend(nightscout.format_gap_warning("Nightscout", gap) for gap in gaps)
+        # In the caller's language: these lines are lifted back out of the tool result and shown
+        # verbatim under the chat answer (see main.py's _extract_notices), so a German warning on
+        # an English account would surface untranslated in the UI.
+        source_name = _native_source_name("nightscout", settings)
+        lines.extend(nightscout.format_gap_warning(source_name, gap, is_en) for gap in gaps)
     return "\n".join(lines)
 
 
@@ -934,23 +975,78 @@ async def _execute_google_health_sleep(arguments: dict[str, Any], settings: dict
     return "\n".join(lines)
 
 
+_INTRADAY_STEPS_WINDOW_MS = 48 * 60 * 60 * 1000
+
+
 async def _execute_google_health_steps(arguments: dict[str, Any], settings: dict) -> str:
+    """Day totals come from Google's own server-side rollup, not from summing raw intervals: the
+    rollup reconciles multiple sources (watch and phone counting the same walk) and excludes
+    wearable data from periods the device wasn't worn. It also works for accounts whose writing app
+    only publishes daily totals -- the raw-interval path returned "keine Schrittdaten" for those,
+    which is what this fixes. Raw intervals are still used, as an intraday breakdown for short
+    windows and as a fallback whenever the rollup comes back empty."""
     now = int(time.time() * 1000)
     from_millis = int(arguments.get("fromEpochMillis") or now - 24 * 60 * 60 * 1000)
     to_millis = int(arguments.get("toEpochMillis") or now)
     try:
         access_token = await google_health.get_valid_access_token(settings, _save_google_health_tokens)
-        intervals = await google_health.fetch_steps(access_token, from_millis, to_millis)
+        daily = await google_health.fetch_daily_steps(access_token, from_millis, to_millis)
     except Exception as exc:  # noqa: BLE001
         return f"Fehler beim Abruf der Google-Health-Schrittdaten: {exc}"
-    if not intervals:
+
+    lines: list[str] = []
+    if daily:
+        total = sum(d.count for d in daily)
+        lines.append(f"Gesamt im Zeitraum: {total} Schritte an {len(daily)} Tag(en)")
+        lines.extend(
+            f"{time.strftime('%d.%m.%Y', time.localtime(d.date_millis / 1000))}: {d.count} Schritte"
+            for d in daily
+        )
+
+    intervals: list[google_health.StepsInterval] = []
+    if not daily or to_millis - from_millis <= _INTRADAY_STEPS_WINDOW_MS:
+        try:
+            intervals = await google_health.fetch_steps(access_token, from_millis, to_millis)
+        except Exception:  # noqa: BLE001 -- the daily totals above are the answer; detail is a bonus
+            intervals = []
+
+    if not daily and not intervals:
         return "Keine Schrittdaten im angefragten Zeitraum gefunden."
-    total = sum(i.count for i in intervals)
-    lines = [f"Gesamt im Zeitraum: {total} Schritte"]
-    for i in intervals:
-        start = time.strftime("%d.%m. %H:%M", time.localtime(i.start_millis / 1000))
-        end = time.strftime("%H:%M", time.localtime(i.end_millis / 1000))
-        lines.append(f"{start} - {end}: {i.count} Schritte")
+    if not daily:
+        lines.append(f"Gesamt im Zeitraum: {sum(i.count for i in intervals)} Schritte (aus Einzelintervallen summiert)")
+    if intervals:
+        lines.append("Einzelne Intervalle:")
+        lines.extend(
+            f"{time.strftime('%d.%m. %H:%M', time.localtime(i.start_millis / 1000))} - "
+            f"{time.strftime('%H:%M', time.localtime(i.end_millis / 1000))}: {i.count} Schritte"
+            for i in intervals
+        )
+    return "\n".join(lines)
+
+
+async def _execute_google_health_activity(arguments: dict[str, Any], settings: dict) -> str:
+    now = int(time.time() * 1000)
+    from_millis = int(arguments.get("fromEpochMillis") or now - 7 * 24 * 60 * 60 * 1000)
+    to_millis = int(arguments.get("toEpochMillis") or now)
+    try:
+        access_token = await google_health.get_valid_access_token(settings, _save_google_health_tokens)
+        days = await google_health.fetch_daily_activity(access_token, from_millis, to_millis)
+    except Exception as exc:  # noqa: BLE001
+        return f"Fehler beim Abruf der Google-Health-Aktivitätsdaten: {exc}"
+    if not days:
+        return "Keine Aktivitätsdaten im angefragten Zeitraum gefunden."
+    lines = []
+    for d in days:
+        parts = []
+        if d.steps is not None:
+            parts.append(f"{d.steps} Schritte")
+        if d.distance_meters is not None:
+            parts.append(f"{d.distance_meters / 1000:.2f} km")
+        if d.active_minutes is not None:
+            parts.append(f"{d.active_minutes} aktive Minuten")
+        if d.active_kcal is not None:
+            parts.append(f"{d.active_kcal:.0f} kcal aktiv")
+        lines.append(f"{time.strftime('%d.%m.%Y', time.localtime(d.date_millis / 1000))}: " + (", ".join(parts) or "keine Werte"))
     return "\n".join(lines)
 
 

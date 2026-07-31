@@ -10,7 +10,9 @@ const t = STRINGS[navigator.language.toLowerCase().startsWith("de") ? "DE" : "EN
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [username, setUsername] = useState("admin");
+  // Deliberately empty: prefilling "admin" only ever helped the very first login on a fresh
+  // install, and afterwards it silently suggested the wrong account to every other user.
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

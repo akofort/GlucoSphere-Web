@@ -20,6 +20,7 @@ constraint as Withings, see oauth.py).
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import secrets
@@ -280,6 +281,141 @@ async def fetch_steps(access_token: str, from_millis: int, to_millis: int) -> li
         intervals.append(StepsInterval(_parse_time_millis(start_time), _parse_time_millis(end_time), int(count)))
     intervals.sort(key=lambda s: s.start_millis)
     return intervals
+
+
+# ---------------------------------------------------------------------------
+# Daily rollups (dataPoints:dailyRollUp)
+# ---------------------------------------------------------------------------
+# Google Health aggregates server-side via `POST .../dataPoints:dailyRollUp` (confirmed against the
+# live discovery document). That is the right call for "how many steps yesterday": it reconciles
+# every data source (watch + phone both counting the same walk) and drops wearable data from
+# intervals when the device wasn't actually worn -- neither of which raw interval data points can
+# do, and summing those locally therefore double-counts. The rollup also survives the common case
+# where the writing app only publishes daily totals and no intraday intervals at all.
+#
+# Ranges are CIVIL time (the user's calendar days, no timezone), and the API caps them: 14 days for
+# active-minutes/total-calories/heart-rate, 90 days for everything else.
+_ROLLUP_MAX_DAYS = {"active-minutes": 14, "total-calories": 14, "heart-rate": 14}
+_ROLLUP_DEFAULT_MAX_DAYS = 90
+_DAY_MILLIS = 24 * 60 * 60 * 1000
+
+
+def _civil_date(millis: int) -> dict[str, Any]:
+    """Local calendar date -- the container runs in the user's timezone (TZ in docker-compose.yml),
+    so "yesterday" here means their yesterday, not UTC's."""
+    lt = time.localtime(millis / 1000)
+    return {"date": {"year": lt.tm_year, "month": lt.tm_mon, "day": lt.tm_mday}}
+
+
+def _civil_date_to_millis(civil: dict[str, Any]) -> int:
+    date_obj = (civil or {}).get("date") or {}
+    if not date_obj.get("year"):
+        return 0
+    return int(datetime(
+        int(date_obj["year"]), int(date_obj.get("month") or 1), int(date_obj.get("day") or 1),
+    ).timestamp() * 1000)
+
+
+async def fetch_daily_rollup(access_token: str, data_type: str, from_millis: int, to_millis: int) -> list[dict]:
+    """One rolled-up data point per calendar day, in `DailyRollupDataPoint` shape (the value lives
+    under the data type's own camelCase key, e.g. `steps.countSum`). The requested range is clamped
+    to the API's per-type maximum, keeping the most recent days."""
+    max_days = _ROLLUP_MAX_DAYS.get(data_type, _ROLLUP_DEFAULT_MAX_DAYS)
+    if to_millis - from_millis > max_days * _DAY_MILLIS:
+        from_millis = to_millis - max_days * _DAY_MILLIS
+    # `end` is exclusive and must be day-aligned -- take the day AFTER `to_millis` so the current
+    # (partial) day is included instead of silently dropped.
+    body: dict[str, Any] = {
+        "range": {"start": _civil_date(from_millis), "end": _civil_date(to_millis + _DAY_MILLIS)},
+        "windowSizeDays": 1,
+    }
+    url = f"{_API_BASE}/users/me/dataTypes/{data_type}/dataPoints:dailyRollUp"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    points: list[dict] = []
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        for _ in range(10):  # hard cap on pagination loops
+            resp = await client.post(url, headers=headers, json=body)
+            if resp.status_code >= 400:
+                raise GoogleHealthError(f"Google-Health-API-Fehler ({data_type}): HTTP {resp.status_code}: {resp.text[:300]}")
+            data = resp.json()
+            points.extend(data.get("rollupDataPoints", []))
+            next_token = data.get("nextPageToken")
+            if not next_token:
+                break
+            body["pageToken"] = next_token
+    return points
+
+
+@dataclass
+class DailySteps:
+    date_millis: int
+    count: int
+
+
+async def fetch_daily_steps(access_token: str, from_millis: int, to_millis: int) -> list[DailySteps]:
+    days = []
+    for dp in await fetch_daily_rollup(access_token, "steps", from_millis, to_millis):
+        count = ((dp.get("steps") or {}).get("countSum"))
+        date_millis = _civil_date_to_millis(dp.get("civilStartTime") or {})
+        if count is None or not date_millis:
+            continue
+        days.append(DailySteps(date_millis, int(count)))
+    days.sort(key=lambda d: d.date_millis)
+    return days
+
+
+@dataclass
+class DailyActivity:
+    date_millis: int
+    steps: int | None = None
+    distance_meters: float | None = None
+    active_minutes: int | None = None
+    active_kcal: float | None = None
+
+
+async def fetch_daily_activity(access_token: str, from_millis: int, to_millis: int) -> list[DailyActivity]:
+    """Steps, distance, active minutes and active calories per day, merged into one row per day.
+    Each data type is its own rollup call (the endpoint's parent path IS the data type), so they
+    run concurrently; a type the account has no data for -- or that its granted scopes don't cover
+    -- is skipped rather than failing the whole summary."""
+    async def safe(data_type: str) -> list[dict]:
+        try:
+            return await fetch_daily_rollup(access_token, data_type, from_millis, to_millis)
+        except GoogleHealthError:
+            return []
+
+    steps, distance, active_minutes, energy = await asyncio.gather(
+        safe("steps"), safe("distance"), safe("active-minutes"), safe("active-energy-burned"),
+    )
+
+    by_date: dict[int, DailyActivity] = {}
+
+    def row(dp: dict) -> DailyActivity | None:
+        date_millis = _civil_date_to_millis(dp.get("civilStartTime") or {})
+        if not date_millis:
+            return None
+        return by_date.setdefault(date_millis, DailyActivity(date_millis))
+
+    for dp in steps:
+        entry, value = row(dp), (dp.get("steps") or {}).get("countSum")
+        if entry and value is not None:
+            entry.steps = int(value)
+    for dp in distance:
+        entry, value = row(dp), (dp.get("distance") or {}).get("millimetersSum")
+        if entry and value is not None:
+            entry.distance_meters = int(value) / 1000.0
+    for dp in active_minutes:
+        entry = row(dp)
+        levels = (dp.get("activeMinutes") or {}).get("activeMinutesRollupByActivityLevel") or []
+        total = sum(int(level.get("activeMinutesSum") or 0) for level in levels)
+        if entry and levels:
+            entry.active_minutes = total
+    for dp in energy:
+        entry, value = row(dp), (dp.get("activeEnergyBurned") or {}).get("kcalSum")
+        if entry and value is not None:
+            entry.active_kcal = float(value)
+
+    return sorted(by_date.values(), key=lambda d: d.date_millis)
 
 
 @dataclass

@@ -220,7 +220,9 @@ async def _tool_traffic_light_status(arguments: dict[str, Any]) -> dict[str, Any
     metrics = nightscout.compute_metrics(entries)
     if metrics is None:
         return {"configured": True, "hasData": False, "note": "No glucose entries in the last 24 hours."}
-    status = nightscout.compute_status(metrics)
+    # English: this server's whole surface (tool names, descriptions, field names) is English, so a
+    # German reason string would be the odd one out for every external MCP client.
+    status = nightscout.compute_status(metrics, is_en=True)
     return {
         "configured": True,
         "hasData": True,
@@ -354,30 +356,66 @@ async def _tool_sleep_analysis(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _google_health_configured(settings: dict[str, Any]) -> bool:
+    return bool(
+        settings.get("googleHealthEnabled", True)
+        and (settings.get("googleHealthAccessToken") or settings.get("googleHealthRefreshToken"))
+    )
+
+
 async def _tool_workout_activity_log(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Two complementary views: discrete workouts (Withings) and per-day movement totals (Google
+    Health). Either source alone is a useful answer -- an account with only a Pixel Watch/Fitbit
+    feeding Google Health used to get "not configured" here even though its step data was right
+    there."""
     days = int(arguments.get("days") or 7)
     settings = db.load_settings()
-    if not _withings_configured(settings):
-        return {"configured": False, "note": "Withings is not connected (Settings -> Data sources -> Withings API)."}
+    has_withings, has_google = _withings_configured(settings), _google_health_configured(settings)
+    if not has_withings and not has_google:
+        return {
+            "configured": False,
+            "note": "Neither Withings nor Google Health is connected (Settings -> Data sources).",
+        }
     from_millis, to_millis = _days_window(days)
-    workouts = await _withings_retry(settings, lambda token: withings.fetch_workouts(token, from_millis, to_millis))
-    return {
-        "configured": True,
-        "windowDays": days,
-        "workouts": [
-            {
-                "start": _iso_utc(w.start_millis),
-                "end": _iso_utc(w.end_millis),
-                "durationMinutes": round((w.end_millis - w.start_millis) / 60_000),
-                "category": w.category_label,
-                "caloriesKcal": w.calories_kcal,
-                "distanceMeters": w.distance_meters,
-                "steps": w.steps,
-                "hrAverageBpm": w.hr_average_bpm,
-            }
-            for w in workouts
-        ],
-    }
+    result: dict[str, Any] = {"configured": True, "windowDays": days, "workouts": [], "dailyActivity": []}
+
+    if has_withings:
+        try:
+            workouts = await _withings_retry(settings, lambda token: withings.fetch_workouts(token, from_millis, to_millis))
+            result["workouts"] = [
+                {
+                    "start": _iso_utc(w.start_millis),
+                    "end": _iso_utc(w.end_millis),
+                    "durationMinutes": round((w.end_millis - w.start_millis) / 60_000),
+                    "category": w.category_label,
+                    "caloriesKcal": w.calories_kcal,
+                    "distanceMeters": w.distance_meters,
+                    "steps": w.steps,
+                    "hrAverageBpm": w.hr_average_bpm,
+                }
+                for w in workouts
+            ]
+        except Exception as exc:  # noqa: BLE001 -- one source failing must not empty the other
+            result["withingsError"] = str(exc)
+
+    if has_google:
+        try:
+            access_token = await google_health.get_valid_access_token(settings, _save_google_health_tokens)
+            activity = await google_health.fetch_daily_activity(access_token, from_millis, to_millis)
+            result["dailyActivity"] = [
+                {
+                    "date": _local_date_str(a.date_millis),
+                    "steps": a.steps,
+                    "distanceMeters": round(a.distance_meters) if a.distance_meters is not None else None,
+                    "activeMinutes": a.active_minutes,
+                    "activeCaloriesKcal": round(a.active_kcal) if a.active_kcal is not None else None,
+                }
+                for a in activity
+            ]
+        except Exception as exc:  # noqa: BLE001
+            result["googleHealthError"] = str(exc)
+
+    return result
 
 
 async def _tool_cardio_metrics(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -496,7 +534,8 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_workout_activity_log",
         "description": "Individual workouts, calories, and activity times over a given window, from a connected "
-                        "Withings smartwatch/tracker.",
+                        "Withings smartwatch/tracker -- plus per-day totals (steps, distance, active minutes, "
+                        "active calories) from a connected Google Health account.",
         "inputSchema": {
             "type": "object",
             "properties": {"days": {"type": "integer", "description": "Number of days back to look. Default 7."}},

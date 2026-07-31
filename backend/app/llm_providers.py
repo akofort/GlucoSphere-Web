@@ -33,8 +33,18 @@ class ChatResult:
     tool_calls: list[dict] | None = None
 
 
-def _resolved_model(provider_type: str, model_selection: str, purpose: str) -> str:
-    return catalog.resolve(provider_type, model_selection or catalog.AUTO_MODEL_ID, purpose)
+def live_models_for(provider_type: str, settings: dict) -> list[str] | None:
+    """Model ids from the last live provider refresh (Einstellungen -> LLM-Konfiguration ->
+    "Modelle aktualisieren"), or None if none were ever fetched. Drives what "Automatisch"
+    resolves to, see catalog.resolve."""
+    cached = (settings.get("providerModelCache") or {}).get(provider_type) or {}
+    ids = [m["id"] for m in cached.get("models") or [] if m.get("id")]
+    return ids or None
+
+
+def _resolved_model(provider_type: str, model_selection: str, purpose: str, settings: dict | None = None) -> str:
+    live = live_models_for(provider_type, settings) if settings else None
+    return catalog.resolve(provider_type, model_selection or catalog.AUTO_MODEL_ID, purpose, live)
 
 
 # Which settings field each provider's model selection lives in -- lets test_connection report the
@@ -51,7 +61,7 @@ def resolved_model_for(provider_type: str, settings: dict, purpose: str = "CHAT"
     field = _MODEL_SETTING_FIELD.get(provider_type)
     if field is None:
         raise ProviderError(f"Unbekannter oder nicht unterstützter Provider: {provider_type}")
-    return _resolved_model(provider_type, settings.get(field, ""), purpose)
+    return _resolved_model(provider_type, settings.get(field, ""), purpose, settings)
 
 
 # Gemini's function-calling "parameters" schema is a restricted subset of JSON Schema, not the
@@ -265,22 +275,22 @@ async def chat(
     "tool_calls": [...]}` (from a previous `ChatResult.tool_calls`), or a tool-result turn
     `{"role": "tool", "tool_call_id": str, "name": str, "content": str}`."""
     if provider_type == "GEMINI":
-        model = _resolved_model(provider_type, settings.get("geminiModel", ""), purpose)
+        model = _resolved_model(provider_type, settings.get("geminiModel", ""), purpose, settings)
         return await _chat_gemini(settings["geminiApiKey"], model, system_prompt, messages, tools)
     if provider_type == "CLAUDE":
-        model = _resolved_model(provider_type, settings.get("claudeModel", ""), purpose)
+        model = _resolved_model(provider_type, settings.get("claudeModel", ""), purpose, settings)
         return await _chat_anthropic(
             settings["claudeApiKey"], settings.get("claudeBaseUrl") or catalog.DEFAULT_CLAUDE_BASE_URL,
             model, system_prompt, messages, tools,
         )
     if provider_type == "OPENAI":
-        model = _resolved_model(provider_type, settings.get("openAiModel", ""), purpose)
+        model = _resolved_model(provider_type, settings.get("openAiModel", ""), purpose, settings)
         return await _chat_openai_compatible(
             settings["openAiApiKey"], settings.get("openAiBaseUrl") or catalog.DEFAULT_OPENAI_BASE_URL,
             model, system_prompt, messages, tools,
         )
     if provider_type == "DEEPSEEK":
-        model = _resolved_model(provider_type, settings.get("deepseekModel", ""), purpose)
+        model = _resolved_model(provider_type, settings.get("deepseekModel", ""), purpose, settings)
         return await _chat_openai_compatible(
             settings["deepseekApiKey"], catalog.DEFAULT_DEEPSEEK_BASE_URL, model, system_prompt, messages, tools,
         )

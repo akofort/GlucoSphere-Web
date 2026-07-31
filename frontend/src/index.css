@@ -367,6 +367,138 @@ details.card summary:first-child {
   color: white;
 }
 
+/* Ampel-Bewertung des Zeitraums (Time in Range), jetzt als farbige Textzeile in der Metrik-Karte
+   statt als großes Banner -- das Banner ist der Live-Kachel gewichen, die den AKTUELLEN Wert
+   zeigt. Beides gleichzeitig groß darzustellen hieße, zwei verschiedene Aussagen ("gerade jetzt"
+   vs. "über den Zeitraum") gleich laut zu machen. */
+.status-light {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  margin: 8px auto 8px;
+  background: currentColor;
+}
+
+.status-light-text {
+  text-align: center;
+  font-size: 0.8rem;
+  margin: 0 0 14px;
+}
+
+.status-light-wrap.GREEN {
+  color: var(--green-text);
+}
+.status-light-wrap.YELLOW {
+  color: var(--yellow-text);
+}
+.status-light-wrap.RED {
+  color: var(--red-text);
+}
+
+/* Zeitraum-/Quellenauswahl: eingeklappt eine Zeile, daneben "Aktualisieren". Kein <details>, weil
+   der Aktualisieren-Knopf sonst im <summary> läge und jeder Klick darauf auch auf-/zuklappen würde. */
+.filter-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-toggle .filter-summary {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Live-Kachel der Übersicht (components/LiveGlucoseTile.tsx) -- eigener Farbverlauf statt der
+   .status-banner-Ampel: die richtet sich nach der Time in Range über den Zeitraum, diese hier nach
+   dem AKTUELLEN Wert und der Tendenz. Farben bewusst identisch zu den Status-Variablen, damit
+   "rot heißt zu niedrig/zu hoch" in der ganzen App dasselbe bedeutet. */
+.live-tile {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  /* Oben mehr Luft: dort sitzt der absolut positionierte "Stand" (.live-asof). */
+  padding: 34px 20px 30px;
+  text-align: center;
+  /* Klein, weil direkt darunter die Quellen-Fußnote folgt (.live-source trägt den Abstand). */
+  margin-bottom: 4px;
+  transition: background 0.4s ease, color 0.4s ease;
+}
+
+.live-tile.IN_RANGE {
+  background: var(--green-bg);
+  color: var(--green-text);
+}
+.live-tile.HIGH,
+.live-tile.LOW {
+  background: var(--yellow-bg);
+  color: var(--yellow-text);
+}
+.live-tile.VERY_HIGH,
+.live-tile.SEVERE_LOW {
+  background: var(--red-bg);
+  color: var(--red-text);
+}
+
+/* Ein veralteter Wert wird ausgegraut statt weiter in Ampelfarbe zu leuchten -- ein 20 Minuten
+   alter Wert ist keine Aussage über "jetzt", und die Farbe würde genau das behaupten. */
+.live-tile.stale {
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.live-asof {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  z-index: 1;
+  font-size: 0.72rem;
+  opacity: 0.85;
+  text-align: left;
+}
+
+.live-footnote {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 0 2px 16px;
+}
+
+.live-footnote span:last-child {
+  text-align: right;
+}
+
+.live-value {
+  font-size: 3.2rem;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.live-arrow {
+  font-size: 2.2rem;
+  margin-left: 8px;
+}
+
+.live-unit {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.live-meta {
+  font-size: 0.75rem;
+  opacity: 0.8;
+  margin-top: 6px;
+}
+
 .metrics-table {
   width: 100%;
   border-collapse: collapse;
@@ -595,6 +727,37 @@ details.card summary:first-child {
 }
 .chat-bubble.assistant .markdown-content a {
   word-break: break-all;
+}
+
+/* A suggested question inside an answer ("Was kann ich dich sinnvollerweise fragen?") -- clicking
+   it sends exactly that question into the current chat, see components/MarkdownAnswer.tsx. Styled
+   as an inviting, tappable row rather than a button so an answer that happens to end in a question
+   still reads as prose. */
+.markdown-content .clickable-question {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 30px 6px 10px;
+  position: relative;
+  transition: background 0.15s, border-color 0.15s;
+}
+.markdown-content li.clickable-question {
+  list-style: none;
+  margin-left: -1.4em;
+}
+.markdown-content .clickable-question:hover,
+.markdown-content .clickable-question:focus-visible {
+  background: var(--bg);
+  border-color: var(--accent);
+  outline: none;
+}
+.markdown-content .clickable-question-hint {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent);
+  font-size: 0.9em;
 }
 
 .chat-history-panel {

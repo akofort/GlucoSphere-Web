@@ -37,6 +37,9 @@ export default function AboutPage() {
 
       <div className="card">
         <h2>{t.aboutVersion}</h2>
+        <p style={{ fontSize: "1.1rem", fontWeight: 600, margin: "0 0 4px" }}>
+          {t.aboutVersionLabel} {__APP_VERSION__}
+        </p>
         <p>
           <a href="https://github.com/akofort/GlucoSphere-Web" target="_blank" rel="noreferrer">
             {t.aboutRepo}
@@ -47,6 +50,13 @@ export default function AboutPage() {
           <br />
           {t.aboutBuildDateLabel}: {buildTime}
         </p>
+        {/* A deploy that skipped the build args (see vite.config.ts) leaves these at "dev"/empty --
+            say so instead of silently showing a placeholder that looks like real build info. */}
+        {(__BUILD_SHA__ === "dev" || !__BUILD_TIME__) && (
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic", marginBottom: 0 }}>
+            {t.aboutBuildUnknownHint}
+          </p>
+        )}
       </div>
 
       <div className="card">

@@ -1,22 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Dashboard, type DashboardSeriesPoint, type DashboardSource } from "../lib/api";
+import { api, type Dashboard, type DashboardSource } from "../lib/api";
 import { DocumentIcon, LogoutIcon, RefreshIcon, SpeakerIcon, StopIcon } from "../components/Icons";
+import LiveGlucoseTile from "../components/LiveGlucoseTile";
 import NoticeList from "../components/NoticeList";
 import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
-import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
+import { attributionHtml, chartHtml, escapeHtml, noticesHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
+import { PROVIDER_SHORT_LABELS, providerLabel } from "../lib/providerLabels";
 import { stripMarkdownForSpeech, ttsSupported } from "../lib/tts";
-
-// Short, clean provider names for the dashboard transparency line ("Ausgewertet mit: ...") --
-// distinct from model_catalog.PROVIDER_LABELS on the backend, which include suffixes like "API"/
-// "(empfohlen)" meant for the LLM-config picker, not a one-line attribution under a summary.
-const PROVIDER_SHORT_LABELS: Record<string, string> = {
-  GEMINI: "Google Gemini",
-  CLAUDE: "Anthropic Claude",
-  OPENAI: "OpenAI / OpenRouter",
-  DEEPSEEK: "DeepSeek",
-};
 
 const RANGES = [
   { hours: 6, label: "6h" },
@@ -43,54 +35,6 @@ function formatTime(ms: number, locale: string): string {
 function formatGlucose(mgDl: number, unit: "MG_DL" | "MMOL_L" | undefined): string {
   if (unit === "MMOL_L") return `${(mgDl / 18.0182).toFixed(1)} mmol/L`;
   return `${mgDl.toFixed(0)} mg/dL`;
-}
-
-function formatGlucoseValue(mgDl: number, unit: "MG_DL" | "MMOL_L" | undefined): string {
-  return unit === "MMOL_L" ? (mgDl / 18.0182).toFixed(1) : mgDl.toFixed(0);
-}
-
-const SPARKLINE_W = 400;
-const SPARKLINE_H = 140;
-
-const TARGET_LOW_MGDL = 70;
-const TARGET_HIGH_MGDL = 180;
-const SPARKLINE_TICK_COUNT = 4;
-
-interface SparklinePaths {
-  line: string;
-  area: string;
-  lowY: number;
-  highY: number;
-  ticks: { pct: number; t: number }[];
-}
-
-/** Builds an SVG line+fill path for the glucose sparkline shown behind the status "Ampel", plus
- * target-range (70-180 mg/dL) reference-line Y positions and evenly spaced time-axis ticks. The
- * Y domain always includes 70-180 (not just the series' own min/max) so the reference lines stay
- * meaningful even when the trace never leaves the target range. */
-function buildSparkline(series: DashboardSeriesPoint[] | undefined): SparklinePaths | null {
-  if (!series || series.length < 2) return null;
-  const times = series.map((p) => p.t);
-  const values = series.map((p) => p.v);
-  const minT = Math.min(...times);
-  const maxT = Math.max(...times);
-  const rawMinV = Math.min(...values, TARGET_LOW_MGDL);
-  const rawMaxV = Math.max(...values, TARGET_HIGH_MGDL);
-  const pad = Math.max(10, (rawMaxV - rawMinV) * 0.1);
-  const loV = rawMinV - pad;
-  const hiV = rawMaxV + pad;
-  const spanT = maxT - minT || 1;
-  const spanV = hiV - loV || 1;
-  const x = (t: number) => ((t - minT) / spanT) * SPARKLINE_W;
-  const y = (v: number) => SPARKLINE_H - ((v - loV) / spanV) * SPARKLINE_H;
-  const points = series.map((p) => `${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`);
-  const line = `M${points.join("L")}`;
-  const area = `${line}L${SPARKLINE_W},${SPARKLINE_H}L0,${SPARKLINE_H}Z`;
-  const ticks = Array.from({ length: SPARKLINE_TICK_COUNT + 1 }, (_, i) => {
-    const fraction = i / SPARKLINE_TICK_COUNT;
-    return { pct: fraction * 100, t: minT + spanT * fraction };
-  });
-  return { line, area, lowY: y(TARGET_LOW_MGDL), highY: y(TARGET_HIGH_MGDL), ticks };
 }
 
 function loadCachedDashboard(): Dashboard | null {
@@ -157,6 +101,13 @@ export default function OverviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourcesLoaded]);
 
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // What the collapsed filter row shows, so the current selection never needs expanding to read.
+  const filterSummary = [
+    RANGES.find((r) => r.hours === rangeHours)?.label ?? `${rangeHours}h`,
+    sources.filter((s) => selectedSourceIds.has(s.id)).map((s) => s.name).join(", "),
+  ].filter(Boolean).join(" · ");
+
   const toggleSource = (id: string) => {
     setSelectedSourceIds((prev) => {
       const next = new Set(prev);
@@ -165,8 +116,6 @@ export default function OverviewPage() {
       return next;
     });
   };
-
-  const chartPaths = dashboard ? buildSparkline(dashboard.series) : null;
 
   // Pull-to-refresh: only armed when already scrolled to the top, mirrors native app behavior.
   // Attached as a manual (non-passive) touchmove listener below -- React attaches its JSX
@@ -254,13 +203,18 @@ export default function OverviewPage() {
       [t.overviewAvgGlucose, formatGlucose(m.avgGlucose, user?.glucoseUnit)],
       [t.overviewGmi, `${m.estimatedHbA1cPercent.toFixed(1)}%`],
     ];
+    // Reihenfolge exakt wie auf dem Bildschirm und wie im Chat-Export: Inhalt, darunter die
+    // Herkunftsangabe (Modell + Quellen), darunter die Hinweise zur Datenqualität.
     const body = `
       ${patientHeaderHtml(user, patientProfile, t)}
       <p>${escapeHtml(dashboard.statusReason ?? "")}</p>
+      ${chartHtml(dashboard.series, locale, t.overviewChartTitle)}
       <h2>${escapeHtml(t.overviewMetricsTitle(dashboard.rangeLabel ?? ""))}</h2>
       <table>${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</table>
       ${dashboard.summaryText ? `<h2>${escapeHtml(t.overviewSummaryTitle)}</h2><div class="content">${escapeHtml(dashboard.summaryText)}</div>` : ""}
       ${dashboard.tips && dashboard.tips.length > 0 ? `<ul>${dashboard.tips.map((tip) => `<li>${escapeHtml(tip)}</li>`).join("")}</ul>` : ""}
+      ${attributionHtml(dashboard.narrativeProvider, dashboard.narrativeModel, dashboard.sourceNames, t, providerLabel)}
+      ${noticesHtml((dashboard.dataGaps ?? []).map((gap) => gap.warningText))}
     `;
     printAsPdf(t.appTitle, body);
   };
@@ -272,11 +226,8 @@ export default function OverviewPage() {
           <h1>{t.appTitle}{patientName ? ` · ${patientName}` : ""}</h1>
         </div>
         <div className="topbar-actions">
-          {dashboard?.metrics && (
-            <button onClick={exportPdf} title={t.overviewExportPdf}>
-              <DocumentIcon />
-            </button>
-          )}
+          {/* Kein PDF-Symbol mehr hier oben -- der Export steht jetzt unter der Zusammenfassung,
+              genau wie im Chat unter jeder Antwort. */}
           <button onClick={() => logout()} title={t.accountLogout}>
             <LogoutIcon />
           </button>
@@ -299,39 +250,67 @@ export default function OverviewPage() {
             )}
           </div>
         )}
-        <div className="range-chips">
-          {RANGES.map((r) => (
-            <button
-              key={r.hours}
-              className={`chip ${rangeHours === r.hours ? "selected" : ""}`}
-              onClick={() => setRangeHours(r.hours)}
-            >
-              {r.label}
-            </button>
-          ))}
-          <button className="chip" onClick={() => load(rangeHours, selectedSourceIds)}>
-            ⟳ {t.overviewRefresh}
-          </button>
-        </div>
+        {/* Oberer Teil: der wirklich live aktualisierte Wert samt 24h-Kurve. Eigener Endpunkt,
+            eigener Takt (30s Wert / 15min Kurve), ohne LLM -- siehe LiveGlucoseTile.tsx. */}
+        <LiveGlucoseTile glucoseUnit={user?.glucoseUnit} />
 
-        {sources.length > 0 && (
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: 4 }}>
-              {t.overviewSourcesLabel}
-            </label>
-            <div className="range-chips">
-              {sources.map((s) => (
-                <button
-                  key={s.id}
-                  className={`chip ${selectedSourceIds.has(s.id) ? "selected" : ""}`}
-                  onClick={() => toggleSource(s.id)}
-                >
-                  {s.name}
-                </button>
-              ))}
-            </div>
+        {/* Unterer Teil: die Auswertung. Sie ist teuer (LLM + ggf. MCP-Quellen) und wird deshalb
+            nur auf Knopfdruck neu gebaut -- Zeitraum, Quellen und "Aktualisieren" gehören hierher,
+            nicht zum Live-Bereich darüber. Eingeklappt, weil beides selten geändert wird; die
+            aktuelle Auswahl steht trotzdem immer in der Kopfzeile. */}
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              type="button"
+              className="filter-toggle"
+              onClick={() => setFiltersOpen((v) => !v)}
+              aria-expanded={filtersOpen}
+            >
+              {filtersOpen ? "▾" : "▸"} {t.overviewFiltersTitle}{" "}
+              <span className="filter-summary">· {filterSummary}</span>
+            </button>
+            <button className="chip" onClick={() => load(rangeHours, selectedSourceIds)}>
+              ⟳ {t.overviewRefresh}
+            </button>
           </div>
-        )}
+
+          {filtersOpen && (
+            <div style={{ marginTop: 12 }}>
+              <label style={{ display: "block", fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: 4 }}>
+                {t.overviewRangeLabel}
+              </label>
+              <div className="range-chips">
+                {RANGES.map((r) => (
+                  <button
+                    key={r.hours}
+                    className={`chip ${rangeHours === r.hours ? "selected" : ""}`}
+                    onClick={() => setRangeHours(r.hours)}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+              {sources.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: 4 }}>
+                    {t.overviewSourcesLabel}
+                  </label>
+                  <div className="range-chips">
+                    {sources.map((s) => (
+                      <button
+                        key={s.id}
+                        className={`chip ${selectedSourceIds.has(s.id) ? "selected" : ""}`}
+                        onClick={() => toggleSource(s.id)}
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {loading && dashboard === null && <div className="empty-state">{t.loading}</div>}
         {loading && dashboard !== null && (
@@ -357,70 +336,30 @@ export default function OverviewPage() {
 
         {dashboard?.configured && !dashboard.excluded && dashboard.hasData && dashboard.metrics && (
           <>
-            {dashboard.generatedAtMillis !== undefined && (
-              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "right", margin: "0 0 6px" }}>
-                {t.overviewLastUpdated(formatTime(dashboard.generatedAtMillis, locale))}
-                {dashboard.generationDurationMs !== undefined && ` · ⚡ ${(dashboard.generationDurationMs / 1000).toFixed(1)}s`}
-              </p>
-            )}
-            <div className={`status-banner ${dashboard.status}`}>
-              {chartPaths && (
-                <>
-                  <svg
-                    className="status-banner-chart"
-                    viewBox={`0 0 ${SPARKLINE_W} ${SPARKLINE_H}`}
-                    preserveAspectRatio="none"
-                    aria-hidden="true"
-                  >
-                    <line x1="0" y1={chartPaths.highY} x2={SPARKLINE_W} y2={chartPaths.highY} stroke="currentColor" strokeOpacity="0.4" strokeWidth="1.5" strokeDasharray="6,4" />
-                    <line x1="0" y1={chartPaths.lowY} x2={SPARKLINE_W} y2={chartPaths.lowY} stroke="currentColor" strokeOpacity="0.4" strokeWidth="1.5" strokeDasharray="6,4" />
-                    <path d={chartPaths.area} fill="currentColor" fillOpacity="0.16" stroke="none" />
-                    <path d={chartPaths.line} fill="none" stroke="currentColor" strokeOpacity="0.5" strokeWidth="2" />
-                  </svg>
-                  <div className="status-banner-axis" aria-hidden="true">
-                    {chartPaths.ticks.map((tick, i) => (
-                      <span
-                        key={i}
-                        style={{
-                          position: "absolute",
-                          left: `${tick.pct}%`,
-                          transform: i === 0 ? "translateX(0)" : i === chartPaths.ticks.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
-                        }}
-                      >
-                        {new Date(tick.t).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    ))}
-                  </div>
-                </>
-              )}
-              <div className="status-banner-content">
-                <div className="dot">
-                  {dashboard.latestValueMgDl !== undefined
-                    ? `${formatGlucoseValue(dashboard.latestValueMgDl, user?.glucoseUnit)} ${dashboard.latestTrendArrow ?? ""}`
-                    : `${dashboard.metrics.tirPercent.toFixed(0)}%`}
-                </div>
-                <div>{t.overviewTimeInRange(dashboard.metrics.tirPercent.toFixed(1))}</div>
-              </div>
-            </div>
+            {/* Kennzahlen des gewählten Zeitraums. Der aktuelle Wert steht bewusst NICHT mehr hier
+                -- der lebt oben in der Live-Kachel; "Letzter Wert" ist hier der letzte Wert im
+                ausgewerteten Fenster, was bei einem 7-Tage-Zeitraum etwas anderes ist. */}
             <div className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                <h2 style={{ margin: 0 }}>{t.overviewMetricsTitle(dashboard.rangeLabel ?? "")}</h2>
+                {dashboard.generatedAtMillis !== undefined && (
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {t.overviewLastUpdated(formatTime(dashboard.generatedAtMillis, locale))}
+                    {dashboard.generationDurationMs !== undefined && ` · ⚡ ${(dashboard.generationDurationMs / 1000).toFixed(1)}s`}
+                  </span>
+                )}
+              </div>
               {dashboard.combinedSourcesNote && (
                 <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic" }}>
                   {dashboard.combinedSourcesNote}
                 </p>
               )}
-              <p>{dashboard.statusReason}</p>
-              {dashboard.latestValueMgDl !== undefined && (
-                <p>
-                  {t.overviewLastValue(formatGlucose(dashboard.latestValueMgDl, user?.glucoseUnit))} {dashboard.latestTrendArrow}
-                </p>
-              )}
-              {dashboard.narrativeFailed && (
-                <p style={{ fontSize: "0.8rem", color: "var(--red-text)" }}>{t.overviewNarrativeFailed}</p>
-              )}
-            </div>
-
-            <div className="card">
-              <h2>{t.overviewMetricsTitle(dashboard.rangeLabel ?? "")}</h2>
+              {/* Ampel für den Zeitraum (Time in Range), klein und mittig -- die große Farbfläche
+                  gehört der Live-Kachel, die etwas anderes aussagt ("gerade jetzt"). */}
+              <div className={`status-light-wrap ${dashboard.status}`}>
+                <span className="status-light" aria-hidden="true" />
+                <p className="status-light-text">{dashboard.statusReason}</p>
+              </div>
               <table className="metrics-table">
                 <tbody>
                   <tr>
@@ -486,6 +425,10 @@ export default function OverviewPage() {
               )}
             </div>
 
+            {dashboard.narrativeFailed && (
+              <p style={{ fontSize: "0.8rem", color: "var(--red-text)" }}>{t.overviewNarrativeFailed}</p>
+            )}
+
             {dashboard.summaryText && (
               <div className="card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -504,12 +447,39 @@ export default function OverviewPage() {
                     ))}
                   </ul>
                 )}
-                {dashboard.narrativeProvider && dashboard.narrativeModel && (
-                  <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 10, marginBottom: 0 }}>
-                    {t.overviewAnalyzedWith(PROVIDER_SHORT_LABELS[dashboard.narrativeProvider] ?? dashboard.narrativeProvider, dashboard.narrativeModel)}
-                  </p>
-                )}
               </div>
+            )}
+
+            {/* Export unter der Zusammenfassung, wie im Chat unter jeder Antwort -- dort gehört er
+                zum Ergebnis, nicht in die Topbar zwischen Navigations-Symbole. */}
+            <button
+              onClick={exportPdf}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4, marginBottom: 10,
+                background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer",
+                padding: 0, fontSize: "0.75rem",
+              }}
+            >
+              <DocumentIcon width={15} height={15} /> {t.overviewExportPdf}
+            </button>
+
+            {/* Attribution block: which model wrote the summary, and directly below it which data
+                sources the numbers came from. Outside the summary card so the source line still
+                shows when the AI narrative is switched off or failed -- where the data came from
+                is worth stating regardless. */}
+            {(dashboard.narrativeProvider || (dashboard.sourceNames?.length ?? 0) > 0) && (
+              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0 0 12px" }}>
+                {dashboard.narrativeProvider && dashboard.narrativeModel && (
+                  <>
+                    {t.overviewAnalyzedWith(
+                      PROVIDER_SHORT_LABELS[dashboard.narrativeProvider] ?? dashboard.narrativeProvider,
+                      dashboard.narrativeModel,
+                    )}
+                    {(dashboard.sourceNames?.length ?? 0) > 0 && <br />}
+                  </>
+                )}
+                {(dashboard.sourceNames?.length ?? 0) > 0 && t.analyzedSources(dashboard.sourceNames!.join(", "))}
+              </p>
             )}
 
             {/* Below the summary, not above it: these qualify the result rather than replacing it.

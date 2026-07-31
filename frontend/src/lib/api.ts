@@ -103,6 +103,12 @@ export interface Settings {
   /** Bearer token securing GlucoSphere-Web's own MCP server endpoint (/api/mcp, see Settings ->
    * MCP Server & API) -- empty means not yet generated. */
   mcpServerToken: string;
+  /** Einstellungen -> Logging -> Benutzung & Zugriffe: whether every /api/ request is recorded on
+   * top of the always-on login/chat/tool events. */
+  accessLogEnabled: boolean;
+  /** Display-only currency label for the token cost table (prices themselves live server-side,
+   * keyed by "{PROVIDER}|{model}" -- see GET/PUT /api/token-usage). */
+  tokenPriceCurrency: string;
 }
 
 export interface SourceHealth {
@@ -149,6 +155,10 @@ export interface ProviderInfo {
   type: string;
   label: string;
   models: ModelOption[];
+  /** "live" = fetched from the provider's own API (see POST /api/providers/{type}/refresh),
+   * "builtin" = the catalog shipped with this version. */
+  source?: "live" | "builtin";
+  fetchedAt?: number | null;
 }
 
 export interface DashboardMetrics {
@@ -218,6 +228,24 @@ export interface Dashboard {
   cobGrams?: number | null;
   loopStatus?: string | null;
   dataGaps?: DashboardDataGap[];
+  /** Which data sources these metrics were computed from -- shown as "Quelle(n): ..." under the
+   * "Ausgewertet mit: ..." attribution. */
+  sourceNames?: string[];
+}
+
+/** The Übersicht's live tile (GET /api/live-status) -- current value, trend and the 24h curve from
+ * the realtime REST sources only. No metrics, no LLM narrative: this is polled every 30s. */
+export interface LiveStatus {
+  configured: boolean;
+  hasData?: boolean;
+  sourceNames?: string[];
+  latestValueMgDl?: number;
+  latestTrendArrow?: string;
+  latestDirection?: string;
+  latestTimestampMillis?: number;
+  generatedAtMillis?: number;
+  series?: DashboardSeriesPoint[];
+  rangeHours?: number;
 }
 
 export interface ChatSession {
@@ -239,6 +267,9 @@ export interface ChatMessage {
   /** Data-quality warnings (missing-data gaps) lifted out of this turn's tool results and shown
    * under the answer -- see components/NoticeList.tsx. Persisted, so they survive a reload. */
   notices?: string[] | null;
+  /** Display names of the data sources this answer actually queried -- shown as "Quelle(n): ..."
+   * under the "Ausgewertet mit: ..." line. Empty when the model answered without any tool call. */
+  sources?: string[] | null;
 }
 
 /** One candidate data source in a chat "welche Quelle?" disambiguation (see
@@ -263,6 +294,36 @@ export interface LogEntry {
   errorMessage: string | null;
   detail: string | null;
   createdAt: number;
+}
+
+/** One provider+model's cumulative token counters (Logging -> Token & Kosten). Prices are entered
+ * by the admin, so `estimatedCost` is null -- shown as "--", not "0" -- until one is set. */
+export interface TokenUsageEntry {
+  provider: string;
+  model: string;
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  firstUsedAt: number;
+  lastUsedAt: number;
+  inputPricePerMillion: number;
+  outputPricePerMillion: number;
+  estimatedCost: number | null;
+}
+
+export type UsageEvent = "LOGIN" | "LOGIN_FAILED" | "LOGOUT" | "CHAT" | "TOOL" | "DASHBOARD" | "ACCESS";
+
+export interface UsageLogEntry {
+  id: number;
+  createdAt: number;
+  userId: string;
+  username: string;
+  event: UsageEvent;
+  detail: string;
+  method: string;
+  path: string;
+  status: number | null;
+  durationMs: number | null;
 }
 
 let onUnauthorized: (() => void) | null = null;
@@ -378,6 +439,8 @@ export const api = {
   getDashboard: (rangeHours: number, sourceIds?: string[]) =>
     request<Dashboard>(`/dashboard?rangeHours=${rangeHours}${sourceIds ? `&sources=${sourceIds.join(",")}` : ""}`),
   getDashboardSources: () => request<{ sources: DashboardSource[] }>("/dashboard-sources"),
+  getLiveStatus: (includeSeries: boolean, rangeHours = 24) =>
+    request<LiveStatus>(`/live-status?includeSeries=${includeSeries ? "true" : "false"}&rangeHours=${rangeHours}`),
   listSessions: () => request<{ sessions: ChatSession[] }>("/chat/sessions"),
   createSession: (title: string) =>
     request<ChatSession>("/chat/sessions", { method: "POST", body: JSON.stringify({ title }) }),
@@ -409,6 +472,25 @@ export const api = {
   getDefaultSystemPrompt: () => request<{ defaultPrompt: string }>("/system-prompt/default"),
   getPerformanceLog: () => request<{ entries: LogEntry[] }>("/performance-log"),
   clearPerformanceLog: () => request<{ cleared: boolean }>("/performance-log", { method: "DELETE" }),
+  getTokenUsage: () => request<{ entries: TokenUsageEntry[]; currency: string }>("/token-usage"),
+  setTokenPrice: (body: { provider: string; model: string; inputPricePerMillion: number; outputPricePerMillion: number }) =>
+    request<{ saved: boolean }>("/token-usage/price", { method: "PUT", body: JSON.stringify(body) }),
+  resetTokenUsage: () => request<{ cleared: boolean }>("/token-usage", { method: "DELETE" }),
+  fetchTokenPrices: (overwrite: boolean) =>
+    request<{ updated: string[]; unmatched: string[]; skipped: string[]; currency: string; source: string }>(
+      `/token-usage/fetch-prices?overwrite=${overwrite ? "true" : "false"}`,
+      { method: "POST" },
+    ),
+  refreshProviderModels: (providerType: string, body?: { apiKey?: string; baseUrl?: string }) =>
+    request<{ provider: string; models: ModelOption[]; fetchedAt: number }>(`/providers/${providerType}/refresh`, {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
+  resetProviderModels: (providerType: string) =>
+    request<{ reset: boolean }>(`/providers/${providerType}/refresh`, { method: "DELETE" }),
+  getUsageLog: (limit = 500) =>
+    request<{ entries: UsageLogEntry[]; accessLogEnabled: boolean }>(`/usage-log?limit=${limit}`),
+  clearUsageLog: () => request<{ cleared: boolean }>("/usage-log", { method: "DELETE" }),
   listMcpServers: () => request<{ servers: McpServer[] }>("/mcp-servers"),
   saveMcpServer: (server: Partial<McpServer>) =>
     request<McpServer>("/mcp-servers", { method: "POST", body: JSON.stringify(server) }),

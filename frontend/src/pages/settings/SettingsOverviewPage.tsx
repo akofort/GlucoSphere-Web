@@ -168,10 +168,12 @@ export default function SettingsOverviewPage() {
                 </div>
                 <div className="arrow">›</div>
               </Link>
-              <Link to="/settings/performance-log">
+              {/* Hub for Performance-Log, Token & Kosten und Benutzung -- der Performance-Log
+                  stand früher direkt hier (siehe LoggingPage.tsx). */}
+              <Link to="/settings/logging">
                 <div>
-                  <div className="title">{t.settingsPerformanceLog}</div>
-                  <div className="subtitle">{t.settingsPerformanceLogSubtitle}</div>
+                  <div className="title">{t.settingsLogging}</div>
+                  <div className="subtitle">{t.settingsLoggingSubtitle}</div>
                 </div>
                 <div className="arrow">›</div>
               </Link>

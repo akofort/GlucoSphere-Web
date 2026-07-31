@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import auth, backup, dashboard_sources, db, dexcom_share, feelfit, glooko, google_health, librelinkup, llm_providers, mcp_client, mcp_server, model_catalog, nightscout, oauth, prompts, tools, withings
+from . import auth, backup, dashboard_sources, db, dexcom_share, feelfit, glooko, google_health, librelinkup, llm_providers, mcp_client, mcp_server, model_catalog, model_discovery, nightscout, oauth, prompts, tools, withings
 
 log = logging.getLogger("glucosphere")
 
@@ -33,6 +33,46 @@ app.add_middleware(
 )
 
 _PUBLIC_PATHS = {"/api/health", "/api/auth/login", "/api/auth/me"}
+
+# Paths excluded from the optional access log -- pure liveness/session polling the frontend does on
+# its own schedule, which would otherwise drown out the requests a human actually triggered.
+_ACCESS_LOG_SKIP_PATHS = {"/api/health", "/api/auth/me", "/api/live-status"}
+_ACCESS_LOG_FLAG_TTL_SECONDS = 10
+_access_log_flag: tuple[float, bool] = (0.0, False)
+
+
+def _access_log_enabled() -> bool:
+    """Cached for a few seconds -- this is consulted on every single /api/ request, and
+    db.load_settings() is a full row read + JSON parse. A toggle taking up to 10s to take effect is
+    a fine trade for not paying that on every request."""
+    global _access_log_flag
+    checked_at, value = _access_log_flag
+    now = time.monotonic()
+    if now - checked_at > _ACCESS_LOG_FLAG_TTL_SECONDS:
+        value = bool(db.load_settings().get("accessLogEnabled"))
+        _access_log_flag = (now, value)
+    return value
+
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Optional per-request log (Einstellungen -> Logging -> Benutzung & Zugriffe, off by default).
+    Sits OUTSIDE AuthMiddleware in the stack (added after it, so it runs first) so that rejected
+    requests -- a 401 from an expired session, a 403 from a MEMBER account hitting an admin route --
+    are recorded too; those are exactly the ones worth seeing."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if not path.startswith("/api/") or path in _ACCESS_LOG_SKIP_PATHS or not _access_log_enabled():
+            return await call_next(request)
+        started = time.monotonic()
+        response = await call_next(request)
+        user = getattr(request.state, "user", None) or {}
+        db.add_usage_event(
+            "ACCESS", user_id=user.get("id", ""), username=user.get("username", ""),
+            method=request.method, path=path, status=response.status_code,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+        return response
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -62,6 +102,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(AuthMiddleware)
+# Added last = runs first (Starlette wraps middleware in reverse registration order), so a request
+# rejected by AuthMiddleware still shows up in the access log with its 401/403.
+app.add_middleware(AccessLogMiddleware)
 
 
 def current_user(request: Request) -> dict:
@@ -119,7 +162,9 @@ class LoginRequest(BaseModel):
 def login(req: LoginRequest) -> JSONResponse:
     user = auth.verify_login(req.username, req.password)
     if user is None:
+        db.add_usage_event("LOGIN_FAILED", username=req.username, detail="Benutzername oder Passwort falsch")
         raise HTTPException(401, "Benutzername oder Passwort falsch.")
+    db.add_usage_event("LOGIN", user_id=user["id"], username=user["username"], detail=user.get("displayName", ""))
     token = auth.create_session(user["id"])
     resp = JSONResponse({"success": True})
     resp.set_cookie(
@@ -133,6 +178,8 @@ def login(req: LoginRequest) -> JSONResponse:
 def logout(request: Request) -> JSONResponse:
     token = request.cookies.get(auth.SESSION_COOKIE_NAME)
     if token:
+        user = auth.get_session_user(token) or {}
+        db.add_usage_event("LOGOUT", user_id=user.get("id", ""), username=user.get("username", ""))
         auth.destroy_session(token)
     resp = JSONResponse({"success": True})
     resp.delete_cookie(auth.SESSION_COOKIE_NAME)
@@ -304,7 +351,13 @@ def get_settings(_: dict = Depends(require_admin)) -> dict:
 
 @app.put("/api/settings")
 def update_settings(patch: dict[str, Any], _: dict = Depends(require_admin)) -> dict:
-    return db.save_settings(patch)
+    global _access_log_flag
+    saved = db.save_settings(patch)
+    if "accessLogEnabled" in patch:
+        # Drop the cached flag instead of waiting out its TTL, so flipping the switch in the UI
+        # takes effect on the very next request.
+        _access_log_flag = (0.0, False)
+    return saved
 
 
 @app.get("/api/system-prompt/default")
@@ -318,19 +371,70 @@ def get_default_system_prompt(user: dict = Depends(require_admin)) -> dict:
 
 @app.get("/api/providers")
 def list_providers() -> dict:
-    return {
-        "providers": [
-            {
-                "type": ptype,
-                "label": label,
-                "models": [
-                    {"id": m.id, "label": m.label, "priceTier": m.price_tier}
-                    for m in model_catalog.options_for(ptype)
-                ],
-            }
-            for ptype, label in model_catalog.PROVIDER_LABELS.items()
-        ]
-    }
+    """Per provider: the model choices for the picker. A provider whose models were refreshed live
+    (see POST /api/providers/{type}/refresh) reports those instead of the built-in catalog, plus
+    when that happened -- so the UI can say whether the list is live or shipped."""
+    cache = db.load_settings().get("providerModelCache") or {}
+    providers = []
+    for ptype, label in model_catalog.PROVIDER_LABELS.items():
+        cached = cache.get(ptype) or {}
+        live_models = [m for m in (cached.get("models") or []) if m.get("id")]
+        providers.append({
+            "type": ptype,
+            "label": label,
+            "models": live_models or [
+                {"id": m.id, "label": m.label, "priceTier": m.price_tier}
+                for m in model_catalog.options_for(ptype)
+            ],
+            "source": "live" if live_models else "builtin",
+            "fetchedAt": cached.get("fetchedAt") if live_models else None,
+        })
+    return {"providers": providers}
+
+
+class ProviderRefreshRequest(BaseModel):
+    # Optional overrides so "Modelle aktualisieren" works with a key that has been typed but not
+    # saved yet -- same convenience as /llm/test-connection. Omitted means "use what's stored".
+    apiKey: str | None = None
+    baseUrl: str | None = None
+
+
+@app.post("/api/providers/{provider_type}/refresh")
+async def refresh_provider_models(
+    provider_type: str,
+    req: ProviderRefreshRequest = ProviderRefreshRequest(),
+    _: dict = Depends(require_admin),
+) -> dict:
+    """Fetches this provider's current model list from its own API and caches the (at most 4, see
+    model_discovery.pick_relevant) relevant ones. Explicitly triggered -- never on a chat/dashboard
+    request path, which must not depend on a third-party list being up."""
+    if provider_type not in model_catalog.PROVIDER_LABELS:
+        raise HTTPException(400, f"Unbekannter Provider: {provider_type}")
+    settings = db.load_settings()
+    if req.apiKey:
+        settings = {**settings, _KEY_FIELD[provider_type]: req.apiKey}
+    if req.baseUrl and provider_type in ("OPENAI", "CLAUDE"):
+        settings = {**settings, "openAiBaseUrl" if provider_type == "OPENAI" else "claudeBaseUrl": req.baseUrl}
+    try:
+        catalog_entry = await model_discovery.build_live_catalog(provider_type, settings)
+    except model_discovery.DiscoveryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    if not catalog_entry["models"]:
+        raise HTTPException(502, "Der Anbieter hat keine verwendbaren Chat-Modelle gemeldet.")
+    cache = dict(settings.get("providerModelCache") or {})
+    cache[provider_type] = catalog_entry
+    db.save_settings({"providerModelCache": cache})
+    return {"provider": provider_type, **catalog_entry}
+
+
+@app.delete("/api/providers/{provider_type}/refresh")
+def reset_provider_models(provider_type: str, _: dict = Depends(require_admin)) -> dict:
+    """Back to the built-in catalog for this provider -- the escape hatch if a live refresh picked
+    models that don't suit (the heuristic is deliberately simple, see pick_relevant)."""
+    cache = dict(db.load_settings().get("providerModelCache") or {})
+    cache.pop(provider_type, None)
+    db.save_settings({"providerModelCache": cache})
+    return {"reset": True}
 
 
 class LlmTestRequest(BaseModel):
@@ -589,6 +693,15 @@ async def test_withings(_: dict = Depends(require_admin)) -> dict:
 # ---------------------------------------------------------------------------
 
 _RANGE_LABELS = {6: "Letzte 6h", 24: "Letzte 24h", 72: "Letzte 72h", 168: "Letzte 7 Tage", 2160: "Letzte 3 Monate"}
+_RANGE_LABELS_EN = {6: "Last 6h", 24: "Last 24h", 72: "Last 72h", 168: "Last 7 days", 2160: "Last 3 months"}
+
+
+def _range_label(range_hours: int, is_en: bool) -> str:
+    """Shown as the metrics heading ("Metriken (Letzte 24h)"), so it has to follow the app
+    language like every other piece of dashboard text."""
+    if is_en:
+        return _RANGE_LABELS_EN.get(range_hours, f"Last {range_hours}h")
+    return _RANGE_LABELS.get(range_hours, f"Letzte {range_hours}h")
 
 
 def _available_dashboard_sources(settings: dict) -> list[dict]:
@@ -663,6 +776,64 @@ async def _fetch_source_safe(source: dict, settings: dict, from_millis: int, to_
         return []
 
 
+# Sources the live tile may use: the native REST integrations only. MCP-backed sources are
+# excluded even when flagged realtime -- their extraction goes through LLM round trips
+# (dashboard_sources.fetch_glucose_entries), which takes tens of seconds and costs tokens; neither
+# belongs behind a 30-second poll.
+_LIVE_SOURCE_IDS = ("nightscout", "dexcom", "librelinkup")
+_LIVE_VALUE_WINDOW_MS = 30 * 60 * 1000
+_LIVE_CHART_MAX_POINTS = 300
+
+
+@app.get("/api/live-status")
+async def get_live_status(
+    includeSeries: bool = True, rangeHours: int = 24, _: dict = Depends(current_user),
+) -> dict:
+    """The Übersicht's live tile: current value, trend and the last-24h curve, straight from the
+    realtime REST sources. No LLM, no narrative, no metrics -- this is the part that must answer in
+    well under a second because the frontend polls it (value every 30s, curve every 15min).
+
+    `includeSeries=false` narrows the fetch window to the last 30 minutes, which is all the current
+    value needs; the full range is only pulled on the slower curve refresh."""
+    settings = db.load_settings()
+    sources = [s for s in _available_dashboard_sources(settings) if s["id"] in _LIVE_SOURCE_IDS]
+    if not sources:
+        return {"configured": False}
+
+    now = int(time.time() * 1000)
+    window_ms = rangeHours * 60 * 60 * 1000 if includeSeries else _LIVE_VALUE_WINDOW_MS
+    results = await asyncio.gather(*[_fetch_source_safe(s, settings, now - window_ms, now) for s in sources])
+
+    contributing, entries = [], []
+    for source, source_entries in zip(sources, results):
+        if source_entries:
+            contributing.append(source["name"])
+            entries.extend(source_entries)
+    if not entries:
+        return {"configured": True, "hasData": False, "generatedAtMillis": now,
+                "sourceNames": [s["name"] for s in sources]}
+
+    latest = max(entries, key=lambda e: e.date_millis)
+    result: dict[str, Any] = {
+        "configured": True,
+        "hasData": True,
+        "sourceNames": contributing,
+        "latestValueMgDl": latest.sgv_mg_dl,
+        "latestTrendArrow": nightscout.trend_arrow_for(latest.direction),
+        "latestDirection": latest.direction,
+        "latestTimestampMillis": latest.date_millis,
+        "generatedAtMillis": now,
+    }
+    if includeSeries:
+        ordered = sorted(entries, key=lambda e: e.date_millis)
+        if len(ordered) > _LIVE_CHART_MAX_POINTS:
+            stride = len(ordered) / _LIVE_CHART_MAX_POINTS
+            ordered = [ordered[int(i * stride)] for i in range(_LIVE_CHART_MAX_POINTS)]
+        result["series"] = [{"t": e.date_millis, "v": round(e.sgv_mg_dl, 1)} for e in ordered]
+        result["rangeHours"] = rangeHours
+    return result
+
+
 @app.get("/api/dashboard")
 async def get_dashboard(
     rangeHours: int = 24, includeNarrative: bool = True, sources: str | None = None,
@@ -670,6 +841,10 @@ async def get_dashboard(
 ) -> dict:
     dashboard_start = time.monotonic()
     settings = db.load_settings()
+    # Every piece of text this endpoint produces -- range label, traffic-light reason, data-gap
+    # warnings, the combined-sources note and the AI summary itself -- follows the caller's own
+    # app language, not the server's default.
+    is_en = user.get("appLanguage") == "EN"
     available = _available_dashboard_sources(settings)
     if not available:
         return {"configured": False}
@@ -677,7 +852,7 @@ async def get_dashboard(
     selected_ids = sources.split(",") if sources is not None else [s["id"] for s in available]
     selected = [s for s in available if s["id"] in selected_ids]
     if not selected:
-        return {"configured": True, "excluded": True, "rangeHours": rangeHours, "rangeLabel": _RANGE_LABELS.get(rangeHours, f"Letzte {rangeHours}h")}
+        return {"configured": True, "excluded": True, "rangeHours": rangeHours, "rangeLabel": _range_label(rangeHours, is_en)}
 
     now = int(time.time() * 1000)
     window_ms = rangeHours * 60 * 60 * 1000
@@ -706,7 +881,7 @@ async def get_dashboard(
         contributions.append((source, m, prev_m, candidate_latest, entries))
 
     if not contributions:
-        return {"configured": True, "hasData": False, "rangeHours": rangeHours, "rangeLabel": _RANGE_LABELS.get(rangeHours, f"Letzte {rangeHours}h")}
+        return {"configured": True, "hasData": False, "rangeHours": rangeHours, "rangeLabel": _range_label(rangeHours, is_en)}
 
     # Prefer realtime sources (e.g. Nightscout) over laggy ones (e.g. Glooko, which can trail
     # hours behind): if any contributing source is realtime, drop the non-realtime ones from the
@@ -728,7 +903,7 @@ async def get_dashboard(
             "sourceName": source["name"],
             "startMillis": gap.start_millis,
             "endMillis": gap.end_millis,
-            "warningText": nightscout.format_gap_warning(source["name"], gap),
+            "warningText": nightscout.format_gap_warning(source["name"], gap, is_en),
         }
         for source, _m, _prev_m, _latest, entries in contributions
         for gap in nightscout.detect_gaps(entries, from_millis, to_millis)
@@ -750,7 +925,7 @@ async def get_dashboard(
 
     metrics = nightscout.combine_metrics(per_source_metrics)
     prev_metrics = nightscout.combine_metrics(per_source_prev_metrics) if per_source_prev_metrics else None
-    status = nightscout.compute_status(metrics)
+    status = nightscout.compute_status(metrics, is_en)
 
     trend = None
     if prev_metrics is not None:
@@ -764,7 +939,7 @@ async def get_dashboard(
         "configured": True,
         "hasData": True,
         "rangeHours": rangeHours,
-        "rangeLabel": _RANGE_LABELS.get(rangeHours, f"Letzte {rangeHours}h"),
+        "rangeLabel": _range_label(rangeHours, is_en),
         "status": status.status,
         "statusReason": status.reason,
         "metrics": {
@@ -785,8 +960,14 @@ async def get_dashboard(
         "summaryText": None,
         "tips": [],
         "combinedSourcesNote": (
-            f"Kombinierte Auswertung ({', '.join(contributing_names)})" if len(contributing_names) > 1 else None
+            (f"Combined analysis ({', '.join(contributing_names)})" if is_en
+             else f"Kombinierte Auswertung ({', '.join(contributing_names)})")
+            if len(contributing_names) > 1 else None
         ),
+        # Which sources these numbers actually came from -- shown as "Quelle(n): ..." under the
+        # "Ausgewertet mit: ..." attribution line (see OverviewPage.tsx). Distinct from
+        # combinedSourcesNote above, which only appears when 2+ sources were merged.
+        "sourceNames": contributing_names,
         # Item 2's "IOB und COB als Live-Metriken im Übersicht-Dashboard" -- null/empty whenever
         # no Nightscout devicestatus (Loop/AndroidAPS) is reporting, not an error.
         "iobUnits": device_status.iob_units if device_status else None,
@@ -798,28 +979,59 @@ async def get_dashboard(
     provider_type = settings.get("llmProviderType")
     if includeNarrative and provider_type and _KEY_FIELD.get(provider_type) and settings.get(_KEY_FIELD[provider_type]):
         iob_cob_line = _iob_cob_system_state_text(device_status).strip()
-        gaps_line = (
-            "\n\nDatenlücken im Zeitraum (bei der Zusammenfassung explizit erwähnen, nicht ignorieren):\n"
-            + "\n".join(g["warningText"] for g in data_gaps)
-        ) if data_gaps else ""
-        narrative_prompt = (
+        # The gaps are given to the model so it doesn't over-interpret metrics computed from a
+        # partial window -- but it must NOT write about them: they are rendered verbatim as their
+        # own Hinweise block under the summary (see OverviewPage.tsx), and having both meant the
+        # same warning appeared twice, once reworded.
+        metrics_line = (
+            f"Current metrics ({result['rangeLabel']}, source: {', '.join(contributing_names)}): "
+            f"Time in Range {metrics.tir_percent:.1f}%, "
+            f"hypoglycemia {metrics.hypo_percent:.1f}%, hyperglycemia {metrics.hyper_percent:.1f}%, "
+            f"variability %CV {metrics.cv_percent:.1f}%, avg. glucose {metrics.avg_glucose:.0f} mg/dL, "
+            f"status: {status.reason}"
+        ) if is_en else (
             f"Aktuelle Kennzahlen ({result['rangeLabel']}, Quelle: {', '.join(contributing_names)}): "
             f"Time in Range {metrics.tir_percent:.1f}%, "
             f"Hypoglykämien {metrics.hypo_percent:.1f}%, Hyperglykämien {metrics.hyper_percent:.1f}%, "
             f"Variabilität %CV {metrics.cv_percent:.1f}%, Ø Glukose {metrics.avg_glucose:.0f} mg/dL, "
             f"Status: {status.reason}"
-            + (f"\n{iob_cob_line}" if iob_cob_line else "")
-            + gaps_line
-            + "\n\nSchreibe dazu eine kurze Zusammenfassung (2-3 Sätze) und danach genau 3 knappe, "
+        )
+        gaps_line = ((
+            "\n\nData gaps in the period (context for your assessment only -- do NOT mention them "
+            "in the text, they are shown to the user separately):\n" if is_en else
+            "\n\nDatenlücken im Zeitraum (nur als Kontext für deine Bewertung -- NICHT im Text "
+            "erwähnen, sie werden dem Nutzer separat angezeigt):\n"
+        ) + "\n".join(g["warningText"] for g in data_gaps)) if data_gaps else ""
+        instructions = (
+            "\n\nWrite a short summary (2-3 sentences) and then exactly 3 brief, concrete tips as a "
+            "list (1 line each, no numbering or dash prefix -- just the tip text, separated by line "
+            "breaks). Name the data source(s) used explicitly in the summary. Do NOT mention any data "
+            "gaps, missing values or measurement outages -- those are shown to the user separately and "
+            "verbatim below the summary. Answer in English. "
+            "Exact format:\nSUMMARY: <text>\nTIPS:\n<tip1>\n<tip2>\n<tip3>"
+        ) if is_en else (
+            "\n\nSchreibe dazu eine kurze Zusammenfassung (2-3 Sätze) und danach genau 3 knappe, "
             "konkrete Tipps als Liste (je 1 Zeile, ohne Nummerierung/Bindestrich-Präfix -- nur der "
             "reine Tipp-Text, getrennt durch Zeilenumbrüche). Nenne in der Zusammenfassung explizit "
-            "die genutzte(n) Datenquelle(n) und -- falls vorhanden -- jede gemeldete Datenlücke. "
+            "die genutzte(n) Datenquelle(n). Erwähne KEINE Datenlücken, fehlenden Werte oder "
+            "Messausfälle -- diese werden dem Nutzer unterhalb der Zusammenfassung separat und "
+            "wortgleich angezeigt. Antworte auf Deutsch. "
             "Format exakt:\nZUSAMMENFASSUNG: <text>\nTIPPS:\n<tipp1>\n<tipp2>\n<tipp3>"
+        )
+        narrative_prompt = (
+            metrics_line
+            + (f"\n{iob_cob_line}" if iob_cob_line else "")
+            + gaps_line
+            + instructions
         )
         if user.get("role") != "ADMIN":
             # Non-admin (MEMBER/family/care-team) accounts must not get therapy suggestions from
             # the dashboard narrative -- keep it to short factual info only.
             narrative_prompt += (
+                "\n\nIMPORTANT: This user is not an administrator. Keep the summary and the tips to "
+                "short factual information only (what the values show) -- no therapy approaches, no "
+                "dosing or treatment suggestions."
+            ) if is_en else (
                 "\n\nWICHTIG: Dieser Nutzer ist kein Administrator. Halte die Zusammenfassung "
                 "und die Tipps auf reine kurze Sachinformation beschränkt (was die Werte zeigen) "
                 "-- keine Therapieansätze, keine Dosierungs- oder Behandlungsvorschläge."
@@ -856,19 +1068,32 @@ async def get_dashboard(
             result["narrativeFailed"] = True
 
     result["generationDurationMs"] = int((time.monotonic() - dashboard_start) * 1000)
+    db.add_usage_event(
+        "DASHBOARD", user_id=user["id"], username=user["username"],
+        detail=f"{result['rangeLabel']} · {', '.join(contributing_names)}",
+        duration_ms=result["generationDurationMs"],
+    )
     return result
 
 
+_SUMMARY_MARKERS = ("ZUSAMMENFASSUNG:", "SUMMARY:")
+_TIPS_MARKERS = ("TIPPS:", "TIPS:")
+
+
 def _parse_narrative(text: str) -> tuple[str | None, list[str]]:
+    """Accepts both the German and the English markers -- the prompt asks for one of them depending
+    on the account's app language, and a model occasionally answers with the other language's
+    heading anyway."""
     summary = None
     tips: list[str] = []
     section = None
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.upper().startswith("ZUSAMMENFASSUNG:"):
+        upper = stripped.upper()
+        if upper.startswith(_SUMMARY_MARKERS):
             summary = stripped.split(":", 1)[1].strip()
             section = None
-        elif stripped.upper().startswith("TIPPS:"):
+        elif upper.startswith(_TIPS_MARKERS):
             section = "tips"
         elif section == "tips" and stripped:
             tips.append(stripped.lstrip("-•").strip())
@@ -952,7 +1177,7 @@ def _extract_notices(tool_result: str) -> list[str]:
     return [
         line.strip()
         for line in tool_result.splitlines()
-        if line.strip().startswith(nightscout.NOTICE_PREFIX)
+        if line.strip().startswith(nightscout.NOTICE_PREFIXES)
     ]
 _SYSTEM_STATE_TIME_HINT = "\n\n[SYSTEM STATE]\nLokale Zeit: {time}\nMaßeinheit: mg/dL{iob_cob}\n[/SYSTEM STATE]"
 
@@ -1037,6 +1262,11 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
     key_field = _KEY_FIELD.get(provider_type)
     if not key_field or not settings.get(key_field):
         raise HTTPException(400, f"Kein API-Key für {provider_type} hinterlegt -- bitte in der LLM-Konfiguration eintragen.")
+
+    # Only on the original call -- a retry with an already-resolved source choice re-sends the same
+    # question and would otherwise show up twice in the usage log.
+    if req.selectedSourceIds is None:
+        db.add_usage_event("CHAT", user_id=user["id"], username=user["username"], detail=req.content[:300])
 
     try:
         # A retry call (selectedSourceIds already resolved, see SendMessageRequest's doc comment)
@@ -1144,10 +1374,12 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
         # round trip sequentially. tools.execute_tool never raises (see its own docstring), so
         # gather needs no try/except here. Results are zipped back in the original call order.
         results = await asyncio.gather(*(
-            tools.execute_tool(tc["name"], tc["arguments"], settings, mcp_servers) for tc in chat_result.tool_calls
+            tools.execute_tool(tc["name"], tc["arguments"], settings, mcp_servers, app_language == "EN")
+            for tc in chat_result.tool_calls
         ))
         for tc, result_text in zip(chat_result.tool_calls, results):
             tool_activity.append({"name": tc["name"], "arguments": tc["arguments"]})
+            db.add_usage_event("TOOL", user_id=user["id"], username=user["username"], detail=tc["name"])
             for notice in _extract_notices(result_text):
                 # The same gap can be reported by repeated calls within one turn (e.g. the model
                 # re-queries a narrower window) -- show each distinct warning once.
@@ -1161,10 +1393,15 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
         provider_type, final_model, "CHAT", total_duration_ms, True,
         prompt_tokens_sum or None, completion_tokens_sum or None, tool_calls=total_tool_calls,
     )
+    # "Quelle(n): ..." under the answer -- derived from the tools this turn really called, so an
+    # answer given without touching any data source honestly shows no source at all.
+    used_sources = tools.source_names_for_tools(
+        [t["name"] for t in tool_activity], available_tools, settings, mcp_servers,
+    )
     assistant_message = db.add_message(
         session_id, user["id"], "assistant", final_text,
         duration_ms=total_duration_ms, success=True, provider=provider_type, model=final_model,
-        notices=notices,
+        notices=notices, sources=used_sources,
     )
     return {"userMessage": user_message, "assistantMessage": assistant_message, "toolActivity": tool_activity}
 
@@ -1444,4 +1681,122 @@ def get_performance_log(_: dict = Depends(require_admin)) -> dict:
 @app.delete("/api/performance-log")
 def clear_performance_log(_: dict = Depends(require_admin)) -> dict:
     db.clear_log_entries()
+    return {"cleared": True}
+
+
+# ---------------------------------------------------------------------------
+# Logging: Token-Verbrauch & Kosten
+# ---------------------------------------------------------------------------
+
+def _price_key(provider: str, model: str) -> str:
+    return f"{provider}|{model}"
+
+
+@app.get("/api/token-usage")
+def get_token_usage(_: dict = Depends(require_admin)) -> dict:
+    """Cumulative tokens per provider/model plus the admin-entered prices (see
+    db.DEFAULT_SETTINGS["tokenPrices"]). Cost is computed here rather than in the frontend so the
+    same numbers back a future export/report without duplicating the formula."""
+    settings = db.load_settings()
+    prices: dict[str, Any] = settings.get("tokenPrices") or {}
+    entries = []
+    for row in db.list_token_usage():
+        price = prices.get(_price_key(row["provider"], row["model"])) or {}
+        input_price = float(price.get("input") or 0.0)
+        output_price = float(price.get("output") or 0.0)
+        has_price = input_price > 0 or output_price > 0
+        entries.append({
+            **row,
+            "inputPricePerMillion": input_price,
+            "outputPricePerMillion": output_price,
+            # None (not 0.0) when no price is configured -- "unknown", which the UI shows as "--",
+            # is a very different statement than "free".
+            "estimatedCost": (
+                row["promptTokens"] / 1_000_000 * input_price + row["completionTokens"] / 1_000_000 * output_price
+            ) if has_price else None,
+        })
+    return {"entries": entries, "currency": settings.get("tokenPriceCurrency") or "USD"}
+
+
+class TokenPriceRequest(BaseModel):
+    provider: str
+    model: str
+    inputPricePerMillion: float = 0.0
+    outputPricePerMillion: float = 0.0
+
+
+@app.put("/api/token-usage/price")
+def set_token_price(req: TokenPriceRequest, _: dict = Depends(require_admin)) -> dict:
+    prices = dict(db.load_settings().get("tokenPrices") or {})
+    key = _price_key(req.provider, req.model)
+    if req.inputPricePerMillion <= 0 and req.outputPricePerMillion <= 0:
+        prices.pop(key, None)
+    else:
+        prices[key] = {"input": req.inputPricePerMillion, "output": req.outputPricePerMillion}
+    db.save_settings({"tokenPrices": prices})
+    return {"saved": True}
+
+
+@app.post("/api/token-usage/fetch-prices")
+async def fetch_token_prices(overwrite: bool = False, _: dict = Depends(require_admin)) -> dict:
+    """Fills in prices for the recorded provider/model pairs from OpenRouter's public model list
+    (the only source that publishes prices -- see model_discovery's module docstring). By default
+    only pairs that have no price yet are touched, so a manually entered rate (an enterprise/
+    discounted tariff OpenRouter knows nothing about) is never silently overwritten; `overwrite=1`
+    refreshes all of them. Models OpenRouter doesn't carry are reported back as unmatched instead
+    of being given a guessed price."""
+    try:
+        price_list = await model_discovery.fetch_openrouter_prices()
+    except model_discovery.DiscoveryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+    prices = dict(db.load_settings().get("tokenPrices") or {})
+    updated, unmatched, skipped = [], [], []
+    for row in db.list_token_usage():
+        key = _price_key(row["provider"], row["model"])
+        if key in prices and not overwrite:
+            skipped.append(row["model"])
+            continue
+        found = model_discovery.match_price(row["provider"], row["model"], price_list)
+        if found is None:
+            unmatched.append(row["model"])
+            continue
+        if found["input"] <= 0 and found["output"] <= 0:
+            # A genuinely free model -- recording 0 would be indistinguishable from "no price
+            # known" in the UI, so leave it unset and say so.
+            unmatched.append(row["model"])
+            continue
+        prices[key] = {"input": found["input"], "output": found["output"]}
+        updated.append(row["model"])
+
+    db.save_settings({"tokenPrices": prices, "tokenPriceCurrency": model_discovery.PRICE_CURRENCY})
+    return {
+        "updated": updated, "unmatched": unmatched, "skipped": skipped,
+        "currency": model_discovery.PRICE_CURRENCY, "source": model_discovery.OPENROUTER_MODELS_URL,
+    }
+
+
+@app.delete("/api/token-usage")
+def reset_token_usage(_: dict = Depends(require_admin)) -> dict:
+    """Resets the counters only -- the configured prices stay, since they describe the models, not
+    the measurement period."""
+    db.clear_token_usage()
+    return {"cleared": True}
+
+
+# ---------------------------------------------------------------------------
+# Logging: Benutzung & Zugriffe
+# ---------------------------------------------------------------------------
+
+@app.get("/api/usage-log")
+def get_usage_log(limit: int = 500, _: dict = Depends(require_admin)) -> dict:
+    return {
+        "entries": db.list_usage_log(max(1, min(limit, 5000))),
+        "accessLogEnabled": bool(db.load_settings().get("accessLogEnabled")),
+    }
+
+
+@app.delete("/api/usage-log")
+def clear_usage_log(_: dict = Depends(require_admin)) -> dict:
+    db.clear_usage_log()
     return {"cleared": True}

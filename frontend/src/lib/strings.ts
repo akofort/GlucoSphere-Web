@@ -45,12 +45,25 @@ export interface Strings {
   overviewSummaryTitle: string;
   overviewReadAloud: string;
   overviewSourcesLabel: string;
+  overviewRangeLabel: string;
+  overviewFiltersTitle: string;
+  overviewChartTitle: string;
   overviewExcluded: string;
   overviewLastUpdated: (time: string) => string;
   overviewNarrativeFailed: string;
+  overviewAnalysisTitle: string;
   overviewAnalyzedWith: (provider: string, model: string) => string;
+  liveTileCaption: string;
+  liveNoRealtimeSource: string;
+  liveNoData: string;
+  liveAsOf: (time: string, ageMinutes: number) => string;
+  liveStale: string;
+  liveOffline: string;
+  /** Shown directly under overviewAnalyzedWith, in both Übersicht and Chat. */
+  analyzedSources: (sources: string) => string;
   noticesSummary: (count: number) => string;
   chatFailed: string;
+  chatAskThisQuestion: string;
 
   chatPlaceholder: string;
   chatSend: string;
@@ -78,8 +91,14 @@ export interface Strings {
   settingsDataSources: string;
   settingsBackup: string;
   settingsBackupSubtitle: string;
+  settingsLogging: string;
+  settingsLoggingSubtitle: string;
   settingsPerformanceLog: string;
   settingsPerformanceLogSubtitle: string;
+  settingsTokenUsage: string;
+  settingsTokenUsageSubtitle: string;
+  settingsUsageLog: string;
+  settingsUsageLogSubtitle: string;
   settingsAccount: string;
   settingsAccountSubtitle: string;
   settingsUsers: string;
@@ -166,6 +185,13 @@ export interface Strings {
   llmConfigModelRequired: string;
   llmConfigModelVerified: (model: string) => string;
   llmConfigNotTested: string;
+  llmConfigRefreshModels: string;
+  llmConfigRefreshing: string;
+  llmConfigRefreshHint: string;
+  llmConfigModelsLive: (date: string) => string;
+  llmConfigModelsBuiltin: string;
+  llmConfigResetModels: string;
+  llmConfigRefreshFailed: (detail: string) => string;
 
   dataSourcesTitle: string;
   dataSourcesNightscoutTitle: string;
@@ -329,6 +355,50 @@ export interface Strings {
   perfLogTokens: (prompt: number, completion: number) => string;
   perfLogOk: string;
 
+  loggingTitle: string;
+  loggingHint: string;
+
+  tokenUsageTitle: string;
+  tokenUsageHint: string;
+  tokenUsagePriceHint: string;
+  tokenUsageEmpty: string;
+  tokenUsageColModel: string;
+  tokenUsageColCalls: string;
+  tokenUsageColPrompt: string;
+  tokenUsageColCompletion: string;
+  tokenUsageColCost: string;
+  tokenUsageTotal: string;
+  tokenUsageCurrencyLabel: string;
+  tokenUsageInputPrice: string;
+  tokenUsageOutputPrice: string;
+  tokenUsageEditPrices: string;
+  tokenUsageNoPrice: string;
+  tokenUsageSince: (date: string) => string;
+  tokenUsageReset: string;
+  tokenUsageResetConfirm: string;
+  tokenUsageFetchPrices: string;
+  tokenUsageFetching: string;
+  tokenUsageFetchHint: string;
+  tokenUsageOverwriteLabel: string;
+  tokenUsageFetchResult: (updated: number, skipped: number, unmatched: number) => string;
+  tokenUsageFetchUnmatched: (models: string) => string;
+
+  usageLogTitle: string;
+  usageLogHint: string;
+  usageLogEmpty: string;
+  usageLogNoMatch: string;
+  usageLogFilterUser: string;
+  usageLogFilterEvent: string;
+  usageLogSearch: string;
+  usageLogSearchPlaceholder: string;
+  usageLogAll: string;
+  usageLogClear: string;
+  usageLogClearConfirm: string;
+  usageLogAccessToggle: string;
+  usageLogAccessHint: string;
+  usageLogEventLabel: (event: string) => string;
+  usageLogCount: (shown: number, total: number) => string;
+
   usersTitle: string;
   usersAddTitle: string;
   usersUsername: string;
@@ -367,8 +437,10 @@ export interface Strings {
   aboutLicensesTitle: string;
   aboutLicensesHint: string;
   aboutRepo: string;
+  aboutVersionLabel: string;
   aboutBuildLabel: string;
   aboutBuildDateLabel: string;
+  aboutBuildUnknownHint: string;
 }
 
 const de: Strings = {
@@ -415,12 +487,24 @@ const de: Strings = {
   overviewSummaryTitle: "Zusammenfassung",
   overviewReadAloud: "Vorlesen",
   overviewSourcesLabel: "Datenquellen",
+  overviewRangeLabel: "Zeitraum",
+  overviewFiltersTitle: "Zeitraum & Datenquellen",
+  overviewChartTitle: "Verlauf",
   overviewExcluded: "Für diese Ansicht deaktiviert -- oben wieder auswählen.",
   overviewLastUpdated: (time) => `Letzter Stand: ${time}`,
   overviewNarrativeFailed: "KI-Zusammenfassung nicht verfügbar (Anbieter-Fehler) -- Kennzahlen oben sind trotzdem aktuell.",
+  overviewAnalysisTitle: "Auswertung",
   overviewAnalyzedWith: (provider, model) => `Ausgewertet mit: ${provider} · ${model}`,
+  liveTileCaption: "Aktueller BZ-Wert (24h Verlauf)",
+  liveNoRealtimeSource: "Keine Echtzeit-Quelle konfiguriert -- für den Live-Wert wird eine direkte Anbindung wie Nightscout benötigt (Einstellungen → Datenquellen).",
+  liveNoData: "Keine aktuellen Messwerte von der Echtzeit-Quelle.",
+  liveAsOf: (time, ageMinutes) => `Stand: ${time} Uhr (vor ${ageMinutes} Min.)`,
+  liveStale: "veraltet",
+  liveOffline: "Aktualisierung fehlgeschlagen",
+  analyzedSources: (sources) => `Quelle(n): ${sources}`,
   noticesSummary: (count) => `⚠️ ${count} Hinweise zur Datenqualität`,
   chatFailed: "Fehlgeschlagen",
+  chatAskThisQuestion: "Diese Frage stellen",
 
   chatPlaceholder: "Nachricht eingeben …",
   chatSend: "Senden",
@@ -448,8 +532,14 @@ const de: Strings = {
   settingsDataSources: "Datenquellen",
   settingsBackup: "Backup & Konfiguration",
   settingsBackupSubtitle: "Einstellungen exportieren/importieren",
+  settingsLogging: "Logging",
+  settingsLoggingSubtitle: "Performance, Token & Kosten, Benutzung",
   settingsPerformanceLog: "Performance-Log",
   settingsPerformanceLogSubtitle: "Anfragen: Anbieter, Modell, Tokens, Dauer",
+  settingsTokenUsage: "Token & Kosten",
+  settingsTokenUsageSubtitle: "Verbrauch nach Modell/Anbieter, mit Kostenschätzung",
+  settingsUsageLog: "Benutzung & Zugriffe",
+  settingsUsageLogSubtitle: "Wer war wann angemeldet, welche Tools liefen",
   settingsAccount: "Konto",
   settingsAccountSubtitle: "Passwort ändern, abmelden",
   settingsUsers: "Benutzerverwaltung",
@@ -566,6 +656,17 @@ const de: Strings = {
   llmConfigModelRequired: "Bitte eine Modell-ID eintragen.",
   llmConfigModelVerified: (model) => `Modell verifiziert: ${model}`,
   llmConfigNotTested: "Noch nicht getestet – zum Speichern erst testen.",
+  llmConfigRefreshModels: "Modelle aktualisieren",
+  llmConfigRefreshing: "Rufe Modelle ab …",
+  llmConfigRefreshHint:
+    "Holt die aktuell verfügbaren Modelle direkt beim Anbieter (mit dem hinterlegten API-Key) und übernimmt " +
+    "die 4 relevantesten in die Auswahl -- so folgt die Liste neuen Modellen ohne neue GlucoSphere-Web-Version. " +
+    "Die Auswahl ist eine Heuristik (Chat-Modelle, neueste Versionen, schnell + Flaggschiff); alles andere " +
+    "bleibt über \"Manuelle Eingabe\" erreichbar.",
+  llmConfigModelsLive: (date) => `Live abgerufen am ${date}`,
+  llmConfigModelsBuiltin: "Mitgelieferte Auswahl (noch nicht aktualisiert)",
+  llmConfigResetModels: "Auf mitgelieferte Liste zurücksetzen",
+  llmConfigRefreshFailed: (detail) => `Abruf fehlgeschlagen: ${detail}`,
 
   dataSourcesTitle: "Datenquellen",
   dataSourcesNightscoutTitle: "Nightscout",
@@ -730,6 +831,72 @@ const de: Strings = {
   perfLogTokens: (prompt, completion) => `${prompt}+${completion} Tokens`,
   perfLogOk: "OK",
 
+  loggingTitle: "Logging",
+  loggingHint: "Alle Protokolle an einer Stelle: technische Anfragedetails, Token-Verbrauch mit Kostenschätzung und die Benutzung der App.",
+
+  tokenUsageTitle: "Token & Kosten",
+  tokenUsageHint:
+    "Summierter Token-Verbrauch je Anbieter und Modell, über alle Chat- und Übersicht-Anfragen hinweg. " +
+    "Läuft unabhängig vom Performance-Log weiter (das nur die letzten 200 Anfragen behält) und wird nur " +
+    "durch \"Verbrauch zurücksetzen\" geleert.",
+  tokenUsagePriceHint:
+    "Preise ändern sich je Anbieter, Tarif und Region -- deshalb sind sie nicht fest eingebaut. Trage je Modell " +
+    "die Preise pro 1 Mio. Tokens ein (siehe Preisliste des Anbieters); ohne Preis werden nur die Tokens gezählt.",
+  tokenUsageEmpty: "Noch kein Verbrauch erfasst.",
+  tokenUsageColModel: "Anbieter / Modell",
+  tokenUsageColCalls: "Anfragen",
+  tokenUsageColPrompt: "Eingabe-Tokens",
+  tokenUsageColCompletion: "Ausgabe-Tokens",
+  tokenUsageColCost: "Kosten (geschätzt)",
+  tokenUsageTotal: "Gesamt",
+  tokenUsageCurrencyLabel: "Währung",
+  tokenUsageInputPrice: "Eingabe pro 1 Mio. Tokens",
+  tokenUsageOutputPrice: "Ausgabe pro 1 Mio. Tokens",
+  tokenUsageEditPrices: "Preise",
+  tokenUsageNoPrice: "kein Preis hinterlegt",
+  tokenUsageSince: (date) => `erfasst seit ${date}`,
+  tokenUsageReset: "Verbrauch zurücksetzen",
+  tokenUsageResetConfirm: "Alle Token-Zähler wirklich zurücksetzen? Die hinterlegten Preise bleiben erhalten.",
+  tokenUsageFetchPrices: "Preise abrufen",
+  tokenUsageFetching: "Rufe Preise ab …",
+  tokenUsageFetchHint:
+    "Holt die Preise aus der öffentlichen Modell-Liste von OpenRouter (openrouter.ai/api/v1/models, ohne " +
+    "API-Key) -- dort stehen auch die Preise der über OpenRouter angebotenen Modelle von Anthropic, OpenAI, " +
+    "Google und DeepSeek. Die Anbieter-eigenen Endpunkte liefern KEINE Preise, nur Modell-IDs. Alle Werte in USD.",
+  tokenUsageOverwriteLabel: "Auch bereits hinterlegte Preise überschreiben",
+  tokenUsageFetchResult: (updated, skipped, unmatched) =>
+    `${updated} Preis(e) übernommen, ${skipped} unverändert gelassen, ${unmatched} ohne Treffer.`,
+  tokenUsageFetchUnmatched: (models) => `Kein Preis gefunden für: ${models}`,
+
+  usageLogTitle: "Benutzung & Zugriffe",
+  usageLogHint:
+    "Protokolliert, wer sich wann an- und abgemeldet hat, welche Fragen gestellt, welche Werkzeuge (Tools) " +
+    "ausgeführt und welche Übersichten erzeugt wurden. Die letzten 5000 Einträge, neueste zuerst.",
+  usageLogEmpty: "Noch keine Einträge.",
+  usageLogNoMatch: "Keine Einträge für diesen Filter.",
+  usageLogFilterUser: "Benutzer",
+  usageLogFilterEvent: "Ereignis",
+  usageLogSearch: "Suche",
+  usageLogSearchPlaceholder: "z. B. Tool-Name, Frage, Pfad …",
+  usageLogAll: "Alle",
+  usageLogClear: "Log leeren",
+  usageLogClearConfirm: "Das gesamte Benutzungsprotokoll wirklich löschen?",
+  usageLogAccessToggle: "API-Zugriffe protokollieren (Access-Log)",
+  usageLogAccessHint:
+    "Zusätzlich jede einzelne API-Anfrage mit Methode, Pfad, Status und Dauer aufzeichnen -- auch abgelehnte " +
+    "(401/403). Erzeugt viele Einträge, daher standardmäßig aus.",
+  usageLogEventLabel: (event) =>
+    ({
+      LOGIN: "Anmeldung",
+      LOGIN_FAILED: "Fehlgeschlagene Anmeldung",
+      LOGOUT: "Abmeldung",
+      CHAT: "Frage",
+      TOOL: "Tool-Aufruf",
+      DASHBOARD: "Übersicht",
+      ACCESS: "API-Zugriff",
+    })[event] ?? event,
+  usageLogCount: (shown, total) => `${shown} von ${total} Einträgen`,
+
   usersTitle: "Benutzerverwaltung",
   usersAddTitle: "Benutzer hinzufügen",
   usersUsername: "Benutzername",
@@ -782,8 +949,11 @@ const de: Strings = {
   aboutLicensesTitle: "Verwendete Open-Source-Bibliotheken",
   aboutLicensesHint: "GlucoSphere-Web baut auf folgenden Open-Source-Projekten auf -- vielen Dank an deren Autoren.",
   aboutRepo: "Quellcode auf GitHub",
+  aboutVersionLabel: "Version",
   aboutBuildLabel: "Build",
   aboutBuildDateLabel: "Build-Datum",
+  aboutBuildUnknownHint:
+    "Build-Kennung nicht gesetzt -- dieser Stand wurde ohne Build-Stempel gebaut (deploy.sh setzt ihn automatisch).",
 };
 
 const en: Strings = {
@@ -830,12 +1000,24 @@ const en: Strings = {
   overviewSummaryTitle: "Summary",
   overviewReadAloud: "Read aloud",
   overviewSourcesLabel: "Data sources",
+  overviewRangeLabel: "Time range",
+  overviewFiltersTitle: "Time range & data sources",
+  overviewChartTitle: "Trend",
   overviewExcluded: "Disabled for this view -- select it again above.",
   overviewLastUpdated: (time) => `Last updated: ${time}`,
   overviewNarrativeFailed: "AI summary unavailable (provider error) -- the metrics above are still current.",
+  overviewAnalysisTitle: "Analysis",
   overviewAnalyzedWith: (provider, model) => `Analyzed with: ${provider} · ${model}`,
+  liveTileCaption: "Current glucose (24h trend)",
+  liveNoRealtimeSource: "No realtime source configured -- the live value needs a direct connection such as Nightscout (Settings → Data sources).",
+  liveNoData: "No current readings from the realtime source.",
+  liveAsOf: (time, ageMinutes) => `As of ${time} (${ageMinutes} min ago)`,
+  liveStale: "outdated",
+  liveOffline: "refresh failed",
+  analyzedSources: (sources) => `Source(s): ${sources}`,
   noticesSummary: (count) => `⚠️ ${count} data-quality notices`,
   chatFailed: "Failed",
+  chatAskThisQuestion: "Ask this question",
 
   chatPlaceholder: "Type a message …",
   chatSend: "Send",
@@ -863,8 +1045,14 @@ const en: Strings = {
   settingsDataSources: "Data sources",
   settingsBackup: "Backup & configuration",
   settingsBackupSubtitle: "Export/import settings",
+  settingsLogging: "Logging",
+  settingsLoggingSubtitle: "Performance, tokens & costs, usage",
   settingsPerformanceLog: "Performance log",
   settingsPerformanceLogSubtitle: "Requests: provider, model, tokens, duration",
+  settingsTokenUsage: "Tokens & costs",
+  settingsTokenUsageSubtitle: "Usage per model/provider, with cost estimate",
+  settingsUsageLog: "Usage & access",
+  settingsUsageLogSubtitle: "Who was logged in when, which tools ran",
   settingsAccount: "Account",
   settingsAccountSubtitle: "Change password, log out",
   settingsUsers: "User management",
@@ -981,6 +1169,17 @@ const en: Strings = {
   llmConfigModelRequired: "Please enter a model ID.",
   llmConfigModelVerified: (model) => `Model verified: ${model}`,
   llmConfigNotTested: "Not tested yet -- test before saving.",
+  llmConfigRefreshModels: "Refresh models",
+  llmConfigRefreshing: "Fetching models …",
+  llmConfigRefreshHint:
+    "Fetches the currently available models straight from the provider (using the stored API key) and takes " +
+    "the 4 most relevant ones into the picker -- so the list follows new releases without a new GlucoSphere-Web " +
+    "version. The selection is a heuristic (chat models, newest versions, fast + flagship); anything else stays " +
+    "reachable via \"Manual entry\".",
+  llmConfigModelsLive: (date) => `Fetched live on ${date}`,
+  llmConfigModelsBuiltin: "Built-in selection (not refreshed yet)",
+  llmConfigResetModels: "Reset to built-in list",
+  llmConfigRefreshFailed: (detail) => `Refresh failed: ${detail}`,
 
   dataSourcesTitle: "Data sources",
   dataSourcesNightscoutTitle: "Nightscout REST API",
@@ -1145,6 +1344,71 @@ const en: Strings = {
   perfLogTokens: (prompt, completion) => `${prompt}+${completion} tokens`,
   perfLogOk: "OK",
 
+  loggingTitle: "Logging",
+  loggingHint: "All logs in one place: technical request details, token usage with a cost estimate, and how the app is being used.",
+
+  tokenUsageTitle: "Tokens & costs",
+  tokenUsageHint:
+    "Cumulative token usage per provider and model, across all Chat and Overview requests. Runs independently " +
+    "of the performance log (which only keeps the last 200 requests) and is only emptied by \"Reset usage\".",
+  tokenUsagePriceHint:
+    "Prices vary by provider, plan and region -- which is why none are hard-coded here. Enter each model's price " +
+    "per 1M tokens (see your provider's price list); without a price only the tokens are counted.",
+  tokenUsageEmpty: "No usage recorded yet.",
+  tokenUsageColModel: "Provider / model",
+  tokenUsageColCalls: "Requests",
+  tokenUsageColPrompt: "Input tokens",
+  tokenUsageColCompletion: "Output tokens",
+  tokenUsageColCost: "Cost (estimated)",
+  tokenUsageTotal: "Total",
+  tokenUsageCurrencyLabel: "Currency",
+  tokenUsageInputPrice: "Input per 1M tokens",
+  tokenUsageOutputPrice: "Output per 1M tokens",
+  tokenUsageEditPrices: "Prices",
+  tokenUsageNoPrice: "no price set",
+  tokenUsageSince: (date) => `recorded since ${date}`,
+  tokenUsageReset: "Reset usage",
+  tokenUsageResetConfirm: "Really reset all token counters? The configured prices are kept.",
+  tokenUsageFetchPrices: "Fetch prices",
+  tokenUsageFetching: "Fetching prices …",
+  tokenUsageFetchHint:
+    "Pulls prices from OpenRouter's public model list (openrouter.ai/api/v1/models, no API key needed) -- it " +
+    "also carries the prices of the Anthropic, OpenAI, Google and DeepSeek models offered through OpenRouter. " +
+    "The providers' own endpoints serve NO prices, only model IDs. All values in USD.",
+  tokenUsageOverwriteLabel: "Also overwrite prices that are already set",
+  tokenUsageFetchResult: (updated, skipped, unmatched) =>
+    `${updated} price(s) applied, ${skipped} left unchanged, ${unmatched} without a match.`,
+  tokenUsageFetchUnmatched: (models) => `No price found for: ${models}`,
+
+  usageLogTitle: "Usage & access",
+  usageLogHint:
+    "Records who logged in and out when, which questions were asked, which tools (tool calls) ran and which " +
+    "overviews were generated. The last 5000 entries, newest first.",
+  usageLogEmpty: "No entries yet.",
+  usageLogNoMatch: "No entries match this filter.",
+  usageLogFilterUser: "User",
+  usageLogFilterEvent: "Event",
+  usageLogSearch: "Search",
+  usageLogSearchPlaceholder: "e.g. tool name, question, path …",
+  usageLogAll: "All",
+  usageLogClear: "Clear log",
+  usageLogClearConfirm: "Really delete the entire usage log?",
+  usageLogAccessToggle: "Log API access (access log)",
+  usageLogAccessHint:
+    "Additionally record every single API request with method, path, status and duration -- including rejected " +
+    "ones (401/403). Produces a lot of entries, so it is off by default.",
+  usageLogEventLabel: (event) =>
+    ({
+      LOGIN: "Login",
+      LOGIN_FAILED: "Failed login",
+      LOGOUT: "Logout",
+      CHAT: "Question",
+      TOOL: "Tool call",
+      DASHBOARD: "Overview",
+      ACCESS: "API access",
+    })[event] ?? event,
+  usageLogCount: (shown, total) => `${shown} of ${total} entries`,
+
   usersTitle: "User management",
   usersAddTitle: "Add user",
   usersUsername: "Username",
@@ -1196,8 +1460,11 @@ const en: Strings = {
   aboutLicensesTitle: "Open-source libraries used",
   aboutLicensesHint: "GlucoSphere-Web is built on the following open-source projects -- thanks to their authors.",
   aboutRepo: "Source code on GitHub",
+  aboutVersionLabel: "Version",
   aboutBuildLabel: "Build",
   aboutBuildDateLabel: "Build date",
+  aboutBuildUnknownHint:
+    "Build id not set -- this build was made without a build stamp (deploy.sh sets it automatically).",
 };
 
 export const STRINGS: Record<"DE" | "EN", Strings> = { DE: de, EN: en };

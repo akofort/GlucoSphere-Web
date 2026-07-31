@@ -102,9 +102,45 @@ CREATE TABLE IF NOT EXISTS source_health (
     source_id TEXT PRIMARY KEY,
     last_ok_at INTEGER NOT NULL
 );
+
+-- Cumulative token counters per provider/model (Einstellungen -> Logging -> Token & Kosten).
+-- Deliberately NOT derived from llm_request_log: that table is capped at the last 200 requests,
+-- so a running total read from it would silently shrink as older rows roll off. Reset explicitly
+-- via the page's "Zurücksetzen" button (clear_token_usage).
+CREATE TABLE IF NOT EXISTS token_usage (
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    calls INTEGER NOT NULL DEFAULT 0,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    first_used_at INTEGER NOT NULL,
+    last_used_at INTEGER NOT NULL,
+    PRIMARY KEY (provider, model)
+);
+
+-- Who did what, when (Einstellungen -> Logging -> Benutzung & Zugriffe): logins, chat questions,
+-- tool calls, dashboard refreshes -- plus, when accessLogEnabled is on, one row per /api/ request.
+CREATE TABLE IF NOT EXISTS usage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    user_id TEXT NOT NULL DEFAULT '',
+    username TEXT NOT NULL DEFAULT '',
+    event TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL DEFAULT '',
+    path TEXT NOT NULL DEFAULT '',
+    status INTEGER,
+    duration_ms INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_log_created ON usage_log(created_at);
 """
 
 _MAX_LOG_ENTRIES = 200
+# The usage log holds far more rows than the performance log: it records every login, chat
+# question and tool call (and, optionally, every API request), and its whole point is answering
+# "who used what last week", so a 200-entry window would be useless.
+_MAX_USAGE_LOG_ENTRIES = 5000
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "systemPrompt": None,  # None -> use server-side DEFAULT_SYSTEM_PROMPT
@@ -180,6 +216,22 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "googleHealthDisplayName": "Google Health",
     "glookoDisplayName": "Glooko",
     "withingsDisplayName": "Withings",
+    # Einstellungen -> Logging -> Token & Kosten: per-provider/model token prices, entered by the
+    # admin (provider price lists change constantly and differ per account/region -- there is no
+    # honest way to ship hard-coded rates). Key is "{PROVIDER}|{model}", value
+    # {"input": <price per 1M prompt tokens>, "output": <price per 1M completion tokens>}; a model
+    # with no entry shows tokens but no cost. `tokenPriceCurrency` is a pure display label.
+    "tokenPrices": {},
+    "tokenPriceCurrency": "USD",
+    # Live model lists fetched from the providers' own APIs (Einstellungen -> LLM-Konfiguration ->
+    # "Modelle aktualisieren"), so the picker can follow new releases without a new GlucoSphere-Web
+    # version. {"<PROVIDER>": {"models": [{"id", "label", "priceTier"}], "fetchedAt": <ms>}}; empty
+    # means "never refreshed, use the built-in catalog" (see model_catalog.resolve).
+    "providerModelCache": {},
+    # Einstellungen -> Logging -> Benutzung & Zugriffe: off by default -- login/chat/tool events are
+    # always recorded, but one row per HTTP request is only worth its noise when actively debugging
+    # who called what.
+    "accessLogEnabled": False,
     # Bearer token for GlucoSphere-Web AS an MCP server (see mcp_server.py, /api/mcp) -- distinct
     # from `mcp_servers` above, which is this app acting as an MCP CLIENT of other servers. Empty
     # means "not yet generated"; AuthMiddleware rejects every /api/mcp request while empty.
@@ -256,12 +308,15 @@ def _migrate_message_metadata(conn: sqlite3.Connection) -> None:
     messages (see add_message), shown under each answer in the UI (date-time/duration/status).
     `notices` (JSON array of strings) holds the data-gap/Auffälligkeit warnings surfaced under the
     answer -- persisted rather than returned once, because ChatPage re-fetches the whole thread
-    from the DB right after sending, so a response-only field would vanish immediately."""
+    from the DB right after sending, so a response-only field would vanish immediately. `sources`
+    (same JSON-array treatment) holds the display names of the data sources this answer actually
+    queried, shown as "Quelle(n): ..." under the "Ausgewertet mit: ..." line."""
     _add_column_if_missing(conn, "chat_messages", "duration_ms", "INTEGER")
     _add_column_if_missing(conn, "chat_messages", "success", "INTEGER")
     _add_column_if_missing(conn, "chat_messages", "provider", "TEXT")
     _add_column_if_missing(conn, "chat_messages", "model", "TEXT")
     _add_column_if_missing(conn, "chat_messages", "notices", "TEXT")
+    _add_column_if_missing(conn, "chat_messages", "sources", "TEXT")
 
 
 def init_db() -> None:
@@ -389,30 +444,32 @@ def add_message(
     session_id: str, user_id: str, role: str, content: str,
     duration_ms: int | None = None, success: bool | None = None,
     provider: str | None = None, model: str | None = None,
-    notices: list[str] | None = None,
+    notices: list[str] | None = None, sources: list[str] | None = None,
 ) -> dict[str, Any]:
-    """`duration_ms`/`success`/`provider`/`model`/`notices` are only ever passed for assistant
-    messages (see main.py::send_message) -- shown under each answer in the UI
-    (date-time/duration/status, plus the data-gap warnings)."""
+    """`duration_ms`/`success`/`provider`/`model`/`notices`/`sources` are only ever passed for
+    assistant messages (see main.py::send_message) -- shown under each answer in the UI
+    (date-time/duration/status, the data-gap warnings, and the "Ausgewertet mit / Quelle(n)"
+    attribution)."""
     created_at = int(time.time() * 1000)
     notices_json = json.dumps(notices) if notices else None
+    sources_json = json.dumps(sources) if sources else None
     with get_conn() as conn:
         if not _session_belongs_to(conn, session_id, user_id):
             raise PermissionError("Session gehört nicht diesem Benutzer.")
         cur = conn.execute(
-            "INSERT INTO chat_messages (session_id, role, content, created_at, duration_ms, success, provider, model, notices) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (session_id, role, content, created_at, duration_ms, None if success is None else int(success), provider, model, notices_json),
+            "INSERT INTO chat_messages (session_id, role, content, created_at, duration_ms, success, provider, model, notices, sources) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, role, content, created_at, duration_ms, None if success is None else int(success), provider, model, notices_json, sources_json),
         )
         message_id = cur.lastrowid
     return {
         "id": message_id, "sessionId": session_id, "role": role, "content": content, "createdAt": created_at,
         "durationMs": duration_ms, "success": success, "provider": provider, "model": model,
-        "notices": notices or [],
+        "notices": notices or [], "sources": sources or [],
     }
 
 
-def _parse_notices(raw: Any) -> list[str]:
+def _parse_string_list(raw: Any) -> list[str]:
     if not raw:
         return []
     try:
@@ -427,7 +484,7 @@ def list_messages(session_id: str, user_id: str) -> list[dict[str, Any]]:
         if not _session_belongs_to(conn, session_id, user_id):
             raise PermissionError("Session gehört nicht diesem Benutzer.")
         rows = conn.execute(
-            "SELECT id, session_id, role, content, created_at, duration_ms, success, provider, model, notices "
+            "SELECT id, session_id, role, content, created_at, duration_ms, success, provider, model, notices, sources "
             "FROM chat_messages WHERE session_id = ? ORDER BY id ASC",
             (session_id,),
         ).fetchall()
@@ -437,7 +494,8 @@ def list_messages(session_id: str, user_id: str) -> list[dict[str, Any]]:
             "createdAt": r["created_at"], "durationMs": r["duration_ms"],
             "success": None if r["success"] is None else bool(r["success"]),
             "provider": r["provider"], "model": r["model"],
-            "notices": _parse_notices(r["notices"]),
+            "notices": _parse_string_list(r["notices"]),
+            "sources": _parse_string_list(r["sources"]),
         }
         for r in rows
     ]
@@ -754,6 +812,7 @@ def add_log_entry(
     prompt_tokens: int | None = None, completion_tokens: int | None = None,
     tool_calls: int = 0, error_message: str | None = None, detail: str | None = None,
 ) -> None:
+    now = int(time.time() * 1000)
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO llm_request_log (provider, model, purpose, prompt_tokens, completion_tokens, "
@@ -761,13 +820,24 @@ def add_log_entry(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 provider, model, purpose, prompt_tokens, completion_tokens, tool_calls, duration_ms,
-                int(success), error_message, detail, int(time.time() * 1000),
+                int(success), error_message, detail, now,
             ),
         )
         conn.execute(
             "DELETE FROM llm_request_log WHERE id NOT IN "
             "(SELECT id FROM llm_request_log ORDER BY id DESC LIMIT ?)",
             (_MAX_LOG_ENTRIES,),
+        )
+        # Cumulative counters for the Token & Kosten page -- kept here (rather than summed from
+        # llm_request_log on read) so the total survives the 200-entry cap above. A failed request
+        # still counts as a call and still bills whatever tokens the provider reported.
+        conn.execute(
+            "INSERT INTO token_usage (provider, model, calls, prompt_tokens, completion_tokens, first_used_at, last_used_at) "
+            "VALUES (?, ?, 1, ?, ?, ?, ?) "
+            "ON CONFLICT(provider, model) DO UPDATE SET "
+            "calls = calls + 1, prompt_tokens = prompt_tokens + excluded.prompt_tokens, "
+            "completion_tokens = completion_tokens + excluded.completion_tokens, last_used_at = excluded.last_used_at",
+            (provider, model, prompt_tokens or 0, completion_tokens or 0, now, now),
         )
 
 
@@ -788,3 +858,77 @@ def list_log_entries() -> list[dict[str, Any]]:
 def clear_log_entries() -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM llm_request_log")
+
+
+# ---------------------------------------------------------------------------
+# Token usage / costs per provider+model (Logging -> Token & Kosten)
+# ---------------------------------------------------------------------------
+
+def list_token_usage() -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM token_usage ORDER BY (prompt_tokens + completion_tokens) DESC, last_used_at DESC",
+        ).fetchall()
+    return [
+        {
+            "provider": r["provider"], "model": r["model"], "calls": r["calls"],
+            "promptTokens": r["prompt_tokens"], "completionTokens": r["completion_tokens"],
+            "firstUsedAt": r["first_used_at"], "lastUsedAt": r["last_used_at"],
+        }
+        for r in rows
+    ]
+
+
+def clear_token_usage() -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM token_usage")
+
+
+# ---------------------------------------------------------------------------
+# Usage/access log (Logging -> Benutzung & Zugriffe)
+# ---------------------------------------------------------------------------
+
+def add_usage_event(
+    event: str, user_id: str = "", username: str = "", detail: str = "",
+    method: str = "", path: str = "", status: int | None = None, duration_ms: int | None = None,
+) -> None:
+    """`event` is one of LOGIN / LOGIN_FAILED / LOGOUT / CHAT / TOOL / DASHBOARD / ACCESS -- see
+    UsageLogPage.tsx's filter chips. Never raises: logging must not be able to break the request
+    it is logging (a locked DB during a long dashboard fetch would otherwise 500 the login)."""
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO usage_log (created_at, user_id, username, event, detail, method, path, status, duration_ms) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (int(time.time() * 1000), user_id, username, event, detail, method, path, status, duration_ms),
+            )
+            conn.execute(
+                "DELETE FROM usage_log WHERE id NOT IN "
+                "(SELECT id FROM usage_log ORDER BY id DESC LIMIT ?)",
+                (_MAX_USAGE_LOG_ENTRIES,),
+            )
+    except sqlite3.Error:
+        pass
+
+
+def list_usage_log(limit: int = 500) -> list[dict[str, Any]]:
+    """Newest first. Filtering (event type, user, free text) happens client-side in
+    UsageLogPage.tsx -- the capped row count is small enough to ship whole, and it keeps every
+    filter instant instead of a round trip per keystroke."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM usage_log ORDER BY id DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {
+            "id": r["id"], "createdAt": r["created_at"], "userId": r["user_id"], "username": r["username"],
+            "event": r["event"], "detail": r["detail"], "method": r["method"], "path": r["path"],
+            "status": r["status"], "durationMs": r["duration_ms"],
+        }
+        for r in rows
+    ]
+
+
+def clear_usage_log() -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM usage_log")

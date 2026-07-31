@@ -43,7 +43,7 @@ export default function PerformanceLogPage() {
   };
 
   return (
-    <SettingsScaffold title={t.perfLogTitle}>
+    <SettingsScaffold title={t.perfLogTitle} back="/settings/logging">
       <div className="card">
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{t.perfLogHint}</p>
         <div className="btn-row">

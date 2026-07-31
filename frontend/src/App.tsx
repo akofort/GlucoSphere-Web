@@ -11,7 +11,10 @@ import McpServerPage from "./pages/settings/McpServerPage";
 import ProfilePage from "./pages/settings/ProfilePage";
 import AccountPage from "./pages/settings/AccountPage";
 import BackupPage from "./pages/settings/BackupPage";
+import LoggingPage from "./pages/settings/LoggingPage";
 import PerformanceLogPage from "./pages/settings/PerformanceLogPage";
+import TokenUsagePage from "./pages/settings/TokenUsagePage";
+import UsageLogPage from "./pages/settings/UsageLogPage";
 import UsersPage from "./pages/settings/UsersPage";
 import SystemPromptPage from "./pages/settings/SystemPromptPage";
 import AboutPage from "./pages/settings/AboutPage";
@@ -20,6 +23,7 @@ import BottomNav from "./components/BottomNav";
 import DisclaimerGate from "./components/DisclaimerGate";
 import { useAuth } from "./lib/AuthContext";
 import { LanguageProvider } from "./lib/LanguageContext";
+import { LiveStatusProvider } from "./lib/LiveStatusContext";
 
 /** Defense-in-depth for MEMBER accounts navigating straight to an admin-only URL -- the backend
  * already 403s the underlying API calls (see main.py's `require_admin`), this just avoids a page
@@ -50,6 +54,9 @@ export default function App() {
 
   return (
     <LanguageProvider>
+      {/* Above the router on purpose: the live value drives the browser-tab title, which has to
+          keep updating on the Chat and Settings pages too -- not only where the tile is mounted. */}
+      <LiveStatusProvider>
       <DisclaimerGate>
         <div className="app-shell">
           <Routes>
@@ -62,7 +69,10 @@ export default function App() {
             <Route path="/settings/profile" element={<ProfilePage />} />
             <Route path="/settings/account" element={<AccountPage />} />
             <Route path="/settings/backup" element={<AdminRoute><BackupPage /></AdminRoute>} />
+            <Route path="/settings/logging" element={<AdminRoute><LoggingPage /></AdminRoute>} />
             <Route path="/settings/performance-log" element={<AdminRoute><PerformanceLogPage /></AdminRoute>} />
+            <Route path="/settings/token-usage" element={<AdminRoute><TokenUsagePage /></AdminRoute>} />
+            <Route path="/settings/usage-log" element={<AdminRoute><UsageLogPage /></AdminRoute>} />
             <Route path="/settings/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
             <Route path="/settings/system-prompt" element={<AdminRoute><SystemPromptPage /></AdminRoute>} />
             <Route path="/settings/about" element={<AboutPage />} />
@@ -71,6 +81,7 @@ export default function App() {
           <BottomNav />
         </div>
       </DisclaimerGate>
+      </LiveStatusProvider>
     </LanguageProvider>
   );
 }

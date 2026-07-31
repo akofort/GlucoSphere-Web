@@ -54,6 +54,8 @@ export default function LlmConfigPage() {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string; model?: string } | null>(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   useEffect(() => {
     // Both together: deciding whether the stored model is a custom one needs the catalog, so
@@ -98,6 +100,32 @@ export default function LlmConfigPage() {
       setTestResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
     } finally {
       setTesting(false);
+    }
+  };
+
+  /** Fetches this provider's live model list (see POST /api/providers/{type}/refresh). A stored
+   * model that survives in the refreshed list stays selected; one that doesn't becomes a manual
+   * entry rather than being silently swapped for something else. */
+  const refreshModels = async (reset = false) => {
+    if (!settings) return;
+    const type = settings.llmProviderType;
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      if (reset) {
+        await api.resetProviderModels(type);
+      } else {
+        // Use what's currently in the form, not only what's stored -- so a freshly pasted key
+        // works without saving first, same as "Testen".
+        await api.refreshProviderModels(type, { apiKey: apiKey.trim(), baseUrl: baseUrl.trim() || undefined });
+      }
+      const { providers: updated } = await api.listProviders();
+      setProviders(updated);
+      setCustomMode(isCustomModelFor(updated, type, model));
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -209,6 +237,28 @@ export default function LlmConfigPage() {
             ))}
             <option value={CUSTOM_MODEL_OPTION}>{t.llmConfigModelCustom}</option>
           </select>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 4 }}>
+            {activeProvider?.source === "live" && activeProvider.fetchedAt
+              ? t.llmConfigModelsLive(new Date(activeProvider.fetchedAt).toLocaleString())
+              : t.llmConfigModelsBuiltin}
+          </p>
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => refreshModels(false)}
+              disabled={refreshing || apiKey.trim() === ""}
+            >
+              {refreshing ? t.llmConfigRefreshing : t.llmConfigRefreshModels}
+            </button>
+            {activeProvider?.source === "live" && (
+              <button type="button" className="btn" onClick={() => refreshModels(true)} disabled={refreshing}>
+                {t.llmConfigResetModels}
+              </button>
+            )}
+          </div>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.llmConfigRefreshHint}</p>
+          {refreshError && <div className="test-result error">{t.llmConfigRefreshFailed(refreshError)}</div>}
         </div>
 
         {customMode && (
