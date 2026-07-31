@@ -62,6 +62,16 @@ export default function TipsPage() {
       <div className="card">
         <h2>{t.tipsModelTitle}</h2>
         <p style={{ fontSize: "0.9rem", lineHeight: 1.5, color: "var(--text-muted)" }}>{t.tipsModelDesc}</p>
+        <p style={{ fontSize: "0.9rem", lineHeight: 1.5, color: "var(--text-muted)" }}>{t.tipsOpenRouterDesc}</p>
+        <p style={{ fontSize: "0.9rem", lineHeight: 1.5, color: "var(--text-muted)" }}>{t.tipsOllamaDesc}</p>
+        <div className="btn-row" style={{ flexWrap: "wrap" }}>
+          <a href="https://openrouter.ai/" target="_blank" rel="noreferrer">
+            <button className="btn">{t.tipsOpenRouterLink}</button>
+          </a>
+          <a href="https://ollama.com/" target="_blank" rel="noreferrer">
+            <button className="btn">{t.tipsOllamaLink}</button>
+          </a>
+        </div>
       </div>
 
       <div className="card">

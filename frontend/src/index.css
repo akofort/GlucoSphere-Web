@@ -703,6 +703,36 @@ details.card summary:first-child {
   color: white;
 }
 
+/* Data-quality notices (see components/NoticeList.tsx) -- advisory, so yellow/warning rather than
+   the red `.test-result.error` used for real failures. --yellow-* are theme-constant on purpose
+   (same reasoning as the glucose status colors, see the :root comment at the top). */
+.notice-box {
+  background: var(--yellow-bg);
+  color: var(--yellow-text);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin-top: 10px;
+}
+
+.notice-box-collapsible > summary {
+  cursor: pointer;
+  font-weight: 600;
+  /* The list below is the disclosure body; without this the marker sits on its own line in some
+     browsers because <ul> is a block child. */
+  list-style-position: outside;
+}
+
+.notice-box-collapsible ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.notice-box-collapsible li + li {
+  margin-top: 6px;
+}
+
 .empty-state {
   text-align: center;
   color: var(--text-muted);

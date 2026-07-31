@@ -174,6 +174,77 @@ _CGM_LABELS_EN = {
     "EVERSENSE": "Eversense",
     "OTHER": "other/unlisted CGM system",
 }
+# AID (Automated Insulin Delivery) -- ids mirror frontend lib/deviceLabels.ts's AID_SYSTEMS.
+# Deliberately separate from the insulin pump above: the pump is the hardware, the AID system is
+# the closed-loop algorithm driving it, and the distinction changes how treatment data must be
+# read (see the closed-loop note appended in build_system_prompt).
+_AID_LABELS_DE = {
+    "NONE": "kein AID-/Closed-Loop-System (manuelle Therapie)",
+    "OMNIPOD_5": "Omnipod 5 (kommerzielles AID)",
+    "YPSOPUMP_CAMAPS_FX": "YpsoPump mit camAPS FX (kommerzielles AID)",
+    "CONTROL_IQ_TSLIM_X2": "Tandem t:slim X2 mit Control-IQ (kommerzielles AID)",
+    "MINIMED_780G": "Medtronic MiniMed 780G (kommerzielles AID)",
+    "OTHER_COMMERCIAL": "anderes kommerzielles AID-System",
+    "ANDROIDAPS": "AndroidAPS (DIY-Closed-Loop)",
+    "OPENAPS": "OpenAPS (DIY-Closed-Loop)",
+    "LOOP_IOS": "Loop unter iOS (DIY-Closed-Loop)",
+    "TRIO": "Trio (DIY-Closed-Loop)",
+    "OTHER_DIY": "anderes DIY-Closed-Loop-System",
+}
+_AID_LABELS_EN = {
+    "NONE": "no AID/closed-loop system (manual therapy)",
+    "OMNIPOD_5": "Omnipod 5 (commercial AID)",
+    "YPSOPUMP_CAMAPS_FX": "YpsoPump with camAPS FX (commercial AID)",
+    "CONTROL_IQ_TSLIM_X2": "Tandem t:slim X2 with Control-IQ (commercial AID)",
+    "MINIMED_780G": "Medtronic MiniMed 780G (commercial AID)",
+    "OTHER_COMMERCIAL": "other commercial AID system",
+    "ANDROIDAPS": "AndroidAPS (DIY closed loop)",
+    "OPENAPS": "OpenAPS (DIY closed loop)",
+    "LOOP_IOS": "Loop on iOS (DIY closed loop)",
+    "TRIO": "Trio (DIY closed loop)",
+    "OTHER_DIY": "other DIY closed-loop system",
+}
+
+# Appended only when an AID system is actually configured -- with a closed loop running, a large
+# share of temp basals/micro-boluses/corrections in the treatment data are ALGORITHM decisions,
+# not manual user actions. Without this the model reads automatic basal adjustments as if the user
+# had dosed them by hand, which produces wrong "you corrected too often" style conclusions.
+_AID_CLOSED_LOOP_NOTE_DE = (
+    " Da ein AID-/Closed-Loop-System aktiv ist: Ein großer Teil der Temp-Basalraten, "
+    "Mikro-Boli und Korrekturen in den Behandlungsdaten sind AUTOMATISCHE Entscheidungen des "
+    "Algorithmus, keine manuellen Handlungen. Werte sie entsprechend als Systemverhalten und "
+    "unterstelle nicht, {mainUserName} habe sie selbst so dosiert."
+)
+_AID_CLOSED_LOOP_NOTE_EN = (
+    " Since an AID/closed-loop system is active: a large share of the temp basal rates, "
+    "micro-boluses, and corrections in the treatment data are AUTOMATIC decisions made by the "
+    "algorithm, not manual actions. Read them as system behavior accordingly, and do not assume "
+    "{mainUserName} dosed them by hand."
+)
+
+# Final, deliberately last-but-one block (the language instruction keeps the very last slot for
+# recency). Restates the grounding requirement in one compact place -- the detailed anti-
+# hallucination rules live further up and lose salience on long prompts with smaller/faster models.
+_GROUNDING_INSTRUCTION_DE = (
+    "\n\n# GRUNDSATZ FÜR ALLE AUSGABEN\n"
+    "Alle Aussagen, Zahlen, Trends und Empfehlungen müssen fundiert sein und ausschließlich auf "
+    "den tatsächlich zur Verfügung gestellten Daten beruhen -- also auf Werkzeug-Ergebnissen "
+    "dieser Sitzung und den hier hinterlegten Profil-/Geräteangaben. Gib niemals etwas als Fakt "
+    "aus, das nicht durch diese Daten gedeckt ist. Wenn die vorliegenden Daten für eine Aussage "
+    "nicht ausreichen, sage das ausdrücklich, statt zu schätzen, zu extrapolieren oder aus "
+    "allgemeinem Vorwissen zu ergänzen. Kennzeichne allgemeines medizinisches Hintergrundwissen "
+    "klar als solches und vermische es nicht mit den konkreten Messwerten des Nutzers."
+)
+_GROUNDING_INSTRUCTION_EN = (
+    "\n\n# GROUNDING PRINCIPLE FOR ALL OUTPUT\n"
+    "Every statement, number, trend, and recommendation must be well-founded and based "
+    "exclusively on the data actually provided -- i.e. on tool results from this session and the "
+    "profile/device information given here. Never present anything as fact that is not backed by "
+    "that data. If the available data is not sufficient for a statement, say so explicitly "
+    "instead of estimating, extrapolating, or filling in from general prior knowledge. Mark "
+    "general medical background knowledge clearly as such and do not blend it with the user's "
+    "actual measured values."
+)
 
 
 def build_system_prompt(
@@ -186,6 +257,7 @@ def build_system_prompt(
     insulin_pump: str = "NONE",
     cgm_system: str = "NONE",
     main_user_name: str = "",
+    aid_system: str = "NONE",
 ) -> str:
     """`main_user_name` is the DIABETIKER (Typ 1) account whose data/devices this session actually
     concerns -- equal to `user_name` for a DIABETIKER user chatting about themselves, but a
@@ -215,31 +287,41 @@ def build_system_prompt(
 
     pump_labels = _INSULIN_PUMP_LABELS_EN if is_en else _INSULIN_PUMP_LABELS_DE
     cgm_labels = _CGM_LABELS_EN if is_en else _CGM_LABELS_DE
+    aid_labels = _AID_LABELS_EN if is_en else _AID_LABELS_DE
     unit_label = "mmol/L" if glucose_unit == "MMOL_L" else "mg/dL"
     pump_text = pump_labels.get(insulin_pump, pump_labels["OTHER"])
     cgm_text = cgm_labels.get(cgm_system, cgm_labels["OTHER"])
+    aid_text = aid_labels.get(aid_system, aid_labels["OTHER_COMMERCIAL"])
+    has_aid = aid_system not in ("", "NONE") and aid_system in aid_labels
+    aid_note = ""
+    if has_aid:
+        aid_note = (_AID_CLOSED_LOOP_NOTE_EN if is_en else _AID_CLOSED_LOOP_NOTE_DE).replace("{mainUserName}", main_name)
     if is_en:
         text += (
             "\n\n# CURRENT DEVICES & UNIT\n"
-            f"Insulin pump: {pump_text}. CGM system: {cgm_text}. This is {main_name}'s actual "
-            "current setup, as entered in their profile -- use it instead of any general or "
-            "outdated assumption about their devices. This is device context only, e.g. for "
-            "phrasing/unit purposes -- it does NOT indicate whether a live data source is "
+            f"Insulin pump: {pump_text}. CGM system: {cgm_text}. AID system: {aid_text}. This is "
+            f"{main_name}'s actual current setup, as entered in their profile -- use it instead of "
+            "any general or outdated assumption about their devices. This is device context only, "
+            "e.g. for phrasing/unit purposes -- it does NOT indicate whether a live data source is "
             "connected; that is determined solely by which tools are in the current tool list. "
             f"Always state glucose values in {unit_label}"
             + (", converting from mg/dL if needed (÷ 18.0182)." if glucose_unit == "MMOL_L" else ".")
+            + aid_note
         )
     else:
         text += (
             "\n\n# AKTUELLE GERÄTE & EINHEIT\n"
-            f"Insulinpumpe: {pump_text}. CGM-System: {cgm_text}. Das ist die tatsächliche, im "
-            f"Profil hinterlegte aktuelle Ausstattung von {main_name} -- nutze diese Angabe statt "
-            "allgemeiner oder veralteter Annahmen über die Geräte. Das ist reiner Geräte-Kontext "
-            "(z. B. für Formulierung/Einheiten) -- KEIN Hinweis darauf, ob eine Live-Datenquelle "
-            "angebunden ist; das ergibt sich ausschließlich aus der aktuellen Werkzeug-Liste. "
+            f"Insulinpumpe: {pump_text}. CGM-System: {cgm_text}. AID-System: {aid_text}. Das ist "
+            f"die tatsächliche, im Profil hinterlegte aktuelle Ausstattung von {main_name} -- nutze "
+            "diese Angabe statt allgemeiner oder veralteter Annahmen über die Geräte. Das ist "
+            "reiner Geräte-Kontext (z. B. für Formulierung/Einheiten) -- KEIN Hinweis darauf, ob "
+            "eine Live-Datenquelle angebunden ist; das ergibt sich ausschließlich aus der "
+            "aktuellen Werkzeug-Liste. "
             f"Nenne Blutzuckerwerte immer in {unit_label}"
             + (", rechne bei Bedarf von mg/dL um (÷ 18,0182)." if glucose_unit == "MMOL_L" else ".")
+            + aid_note
         )
 
+    text += _GROUNDING_INSTRUCTION_EN if is_en else _GROUNDING_INSTRUCTION_DE
     text += lang_instruction
     return text

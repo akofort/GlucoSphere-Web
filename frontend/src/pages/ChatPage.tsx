@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type ChatMessage, type ChatSession, type SourceOption } from "../lib/api";
 import { ClockIcon, DocumentIcon, LogoutIcon, PencilIcon, SpeakerIcon, StopIcon, TrashIcon } from "../components/Icons";
+import NoticeList from "../components/NoticeList";
 import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
 import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
@@ -296,6 +297,9 @@ export default function ChatPage() {
                   m.content
                 )}
               </div>
+              {m.role === "assistant" && m.notices && m.notices.length > 0 && (
+                <NoticeList notices={m.notices} />
+              )}
               <div
                 style={{
                   fontSize: "0.7rem",

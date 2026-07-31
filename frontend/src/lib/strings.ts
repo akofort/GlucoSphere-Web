@@ -49,6 +49,7 @@ export interface Strings {
   overviewLastUpdated: (time: string) => string;
   overviewNarrativeFailed: string;
   overviewAnalyzedWith: (provider: string, model: string) => string;
+  noticesSummary: (count: number) => string;
   chatFailed: string;
 
   chatPlaceholder: string;
@@ -108,6 +109,10 @@ export interface Strings {
   tipsAskButton: string;
   tipsModelTitle: string;
   tipsModelDesc: string;
+  tipsOpenRouterDesc: string;
+  tipsOpenRouterLink: string;
+  tipsOllamaDesc: string;
+  tipsOllamaLink: string;
   settingsLanguage: string;
   appearanceSectionTitle: string;
   colorThemeLabel: (theme: string) => string;
@@ -414,6 +419,7 @@ const de: Strings = {
   overviewLastUpdated: (time) => `Letzter Stand: ${time}`,
   overviewNarrativeFailed: "KI-Zusammenfassung nicht verfügbar (Anbieter-Fehler) -- Kennzahlen oben sind trotzdem aktuell.",
   overviewAnalyzedWith: (provider, model) => `Ausgewertet mit: ${provider} · ${model}`,
+  noticesSummary: (count) => `⚠️ ${count} Hinweise zur Datenqualität`,
   chatFailed: "Fehlgeschlagen",
 
   chatPlaceholder: "Nachricht eingeben …",
@@ -477,6 +483,21 @@ const de: Strings = {
   tipsAskButton: "Jetzt im Chat fragen",
   tipsModelTitle: "Modell-Empfehlung",
   tipsModelDesc: "DeepSeek v4 Flash lief in der Praxis am zuverlässigsten -- hat die verfügbaren Werkzeuge am sinnvollsten eingesetzt und dabei passende Antworten geliefert. Einstellbar unter Einstellungen -> LLM-Konfiguration.",
+  tipsOpenRouterDesc:
+    "Wer Modelle verschiedener Hersteller ausprobieren möchte, ohne sich überall einzeln zu registrieren, " +
+    "sollte OpenRouter testen: ein API-Key, ein Guthaben, Zugriff auf Modelle von OpenAI, Anthropic, Google, " +
+    "DeepSeek, Meta und vielen weiteren. In GlucoSphere unter Einstellungen -> LLM-Konfiguration den Anbieter " +
+    "\"OpenAI API / OpenRouter\" wählen, als API-Basis-URL https://openrouter.ai/api/v1 eintragen und das " +
+    "gewünschte Modell auswählen -- oder per \"Manuelle Eingabe\" die exakte Modell-ID von OpenRouter eintragen.",
+  tipsOpenRouterLink: "OpenRouter öffnen",
+  tipsOllamaDesc:
+    "Über dieselbe OpenAI-API-Schnittstelle lassen sich auch lokale Modelle mit Ollama nutzen -- die Daten " +
+    "bleiben dann vollständig auf dem eigenen Rechner/Server, ohne Cloud-Anbieter. Ollama installieren, ein " +
+    "Modell laden (z. B. \"ollama pull llama3.1\"), dann in der LLM-Konfiguration den Anbieter \"OpenAI API / " +
+    "OpenRouter\" wählen, als API-Basis-URL http://<host>:11434/v1 eintragen und die Modell-ID per \"Manuelle " +
+    "Eingabe\" angeben. Hinweis: Kleinere lokale Modelle beherrschen Tool-Calling oft nur eingeschränkt -- " +
+    "wenn Datenabfragen nicht zuverlässig funktionieren, liegt es meist daran.",
+  tipsOllamaLink: "Ollama öffnen",
   settingsAbout: "Über GlucoSphere",
   settingsAboutSubtitle: "Version, Copyright, Haftungsausschluss",
   settingsLanguage: "Sprache",
@@ -813,6 +834,7 @@ const en: Strings = {
   overviewLastUpdated: (time) => `Last updated: ${time}`,
   overviewNarrativeFailed: "AI summary unavailable (provider error) -- the metrics above are still current.",
   overviewAnalyzedWith: (provider, model) => `Analyzed with: ${provider} · ${model}`,
+  noticesSummary: (count) => `⚠️ ${count} data-quality notices`,
   chatFailed: "Failed",
 
   chatPlaceholder: "Type a message …",
@@ -876,6 +898,21 @@ const en: Strings = {
   tipsAskButton: "Ask now in chat",
   tipsModelTitle: "Model recommendation",
   tipsModelDesc: "DeepSeek v4 Flash has been the most reliable in practice -- it used the available tools most sensibly and delivered fitting answers. Configurable under Settings -> LLM configuration.",
+  tipsOpenRouterDesc:
+    "If you want to try models from several vendors without signing up for each one separately, give " +
+    "OpenRouter a go: one API key, one balance, access to models from OpenAI, Anthropic, Google, DeepSeek, " +
+    "Meta, and many more. In GlucoSphere, go to Settings -> LLM configuration, pick the provider " +
+    "\"OpenAI API / OpenRouter\", set the API base URL to https://openrouter.ai/api/v1, and choose a model " +
+    "-- or use \"Manual entry\" to type OpenRouter's exact model ID.",
+  tipsOpenRouterLink: "Open OpenRouter",
+  tipsOllamaDesc:
+    "The same OpenAI API interface also lets you run local models with Ollama -- your data then stays " +
+    "entirely on your own machine/server, with no cloud provider involved. Install Ollama, pull a model " +
+    "(e.g. \"ollama pull llama3.1\"), then in the LLM configuration pick the provider \"OpenAI API / " +
+    "OpenRouter\", set the API base URL to http://<host>:11434/v1, and enter the model ID via \"Manual " +
+    "entry\". Note: smaller local models often support tool calling only partially -- that is usually the " +
+    "reason if data queries don't work reliably.",
+  tipsOllamaLink: "Open Ollama",
   settingsAbout: "About GlucoSphere",
   settingsAboutSubtitle: "Version, copyright, disclaimer",
   settingsLanguage: "Language",

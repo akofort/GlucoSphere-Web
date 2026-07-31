@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Dashboard, type DashboardSeriesPoint, type DashboardSource } from "../lib/api";
 import { DocumentIcon, LogoutIcon, RefreshIcon, SpeakerIcon, StopIcon } from "../components/Icons";
+import NoticeList from "../components/NoticeList";
 import { useAuth } from "../lib/AuthContext";
 import { useLanguage } from "../lib/LanguageContext";
 import { escapeHtml, patientHeaderHtml, printAsPdf } from "../lib/pdfExport";
@@ -485,16 +486,6 @@ export default function OverviewPage() {
               )}
             </div>
 
-            {dashboard.dataGaps && dashboard.dataGaps.length > 0 && (
-              <div className="test-result error" style={{ marginBottom: 16 }}>
-                {dashboard.dataGaps.map((gap, i) => (
-                  <p key={i} style={{ margin: i === 0 ? 0 : "8px 0 0" }}>
-                    {gap.warningText}
-                  </p>
-                ))}
-              </div>
-            )}
-
             {dashboard.summaryText && (
               <div className="card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -520,6 +511,11 @@ export default function OverviewPage() {
                 )}
               </div>
             )}
+
+            {/* Below the summary, not above it: these qualify the result rather than replacing it.
+                Rendered outside the summary card so they still appear when the AI narrative is
+                switched off or failed -- a data gap matters regardless. */}
+            <NoticeList notices={(dashboard.dataGaps ?? []).map((gap) => gap.warningText)} />
           </>
         )}
       </div>

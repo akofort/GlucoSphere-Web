@@ -253,11 +253,15 @@ def _migrate_multi_user(conn: sqlite3.Connection) -> None:
 
 def _migrate_message_metadata(conn: sqlite3.Connection) -> None:
     """duration_ms/success/provider/model on chat_messages -- only ever set for assistant
-    messages (see add_message), shown under each answer in the UI (date-time/duration/status)."""
+    messages (see add_message), shown under each answer in the UI (date-time/duration/status).
+    `notices` (JSON array of strings) holds the data-gap/Auffälligkeit warnings surfaced under the
+    answer -- persisted rather than returned once, because ChatPage re-fetches the whole thread
+    from the DB right after sending, so a response-only field would vanish immediately."""
     _add_column_if_missing(conn, "chat_messages", "duration_ms", "INTEGER")
     _add_column_if_missing(conn, "chat_messages", "success", "INTEGER")
     _add_column_if_missing(conn, "chat_messages", "provider", "TEXT")
     _add_column_if_missing(conn, "chat_messages", "model", "TEXT")
+    _add_column_if_missing(conn, "chat_messages", "notices", "TEXT")
 
 
 def init_db() -> None:
@@ -385,23 +389,37 @@ def add_message(
     session_id: str, user_id: str, role: str, content: str,
     duration_ms: int | None = None, success: bool | None = None,
     provider: str | None = None, model: str | None = None,
+    notices: list[str] | None = None,
 ) -> dict[str, Any]:
-    """`duration_ms`/`success`/`provider`/`model` are only ever passed for assistant messages
-    (see main.py::send_message) -- shown under each answer in the UI (date-time/duration/status)."""
+    """`duration_ms`/`success`/`provider`/`model`/`notices` are only ever passed for assistant
+    messages (see main.py::send_message) -- shown under each answer in the UI
+    (date-time/duration/status, plus the data-gap warnings)."""
     created_at = int(time.time() * 1000)
+    notices_json = json.dumps(notices) if notices else None
     with get_conn() as conn:
         if not _session_belongs_to(conn, session_id, user_id):
             raise PermissionError("Session gehört nicht diesem Benutzer.")
         cur = conn.execute(
-            "INSERT INTO chat_messages (session_id, role, content, created_at, duration_ms, success, provider, model) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (session_id, role, content, created_at, duration_ms, None if success is None else int(success), provider, model),
+            "INSERT INTO chat_messages (session_id, role, content, created_at, duration_ms, success, provider, model, notices) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, role, content, created_at, duration_ms, None if success is None else int(success), provider, model, notices_json),
         )
         message_id = cur.lastrowid
     return {
         "id": message_id, "sessionId": session_id, "role": role, "content": content, "createdAt": created_at,
         "durationMs": duration_ms, "success": success, "provider": provider, "model": model,
+        "notices": notices or [],
     }
+
+
+def _parse_notices(raw: Any) -> list[str]:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return [str(n) for n in parsed] if isinstance(parsed, list) else []
 
 
 def list_messages(session_id: str, user_id: str) -> list[dict[str, Any]]:
@@ -409,7 +427,7 @@ def list_messages(session_id: str, user_id: str) -> list[dict[str, Any]]:
         if not _session_belongs_to(conn, session_id, user_id):
             raise PermissionError("Session gehört nicht diesem Benutzer.")
         rows = conn.execute(
-            "SELECT id, session_id, role, content, created_at, duration_ms, success, provider, model "
+            "SELECT id, session_id, role, content, created_at, duration_ms, success, provider, model, notices "
             "FROM chat_messages WHERE session_id = ? ORDER BY id ASC",
             (session_id,),
         ).fetchall()
@@ -419,6 +437,7 @@ def list_messages(session_id: str, user_id: str) -> list[dict[str, Any]]:
             "createdAt": r["created_at"], "durationMs": r["duration_ms"],
             "success": None if r["success"] is None else bool(r["success"]),
             "provider": r["provider"], "model": r["model"],
+            "notices": _parse_notices(r["notices"]),
         }
         for r in rows
     ]

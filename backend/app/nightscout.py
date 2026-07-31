@@ -240,6 +240,13 @@ def detect_gaps(
     return gaps
 
 
+# Every user-facing "Auffälligkeit" line starts with this marker. Chat tool results carry these
+# inline in their text (the model is instructed to repeat them verbatim, see prompts.py), and
+# main.py::send_message scans tool output for exactly this prefix to lift them back out as
+# structured notices for the UI -- so the marker must stay a single shared constant.
+NOTICE_PREFIX = "⚠️ Hinweis:"
+
+
 def format_gap_warning(source_name: str, gap: DataGap) -> str:
     """Item 3's exact required warning wording -- one instance per detected gap. Both the chat
     tool output (tools.py) and the Übersicht/report path (main.py) call this so the wording never
@@ -247,7 +254,7 @@ def format_gap_warning(source_name: str, gap: DataGap) -> str:
     start = time.strftime("%d.%m.%Y %H:%M", time.localtime(gap.start_millis / 1000))
     end = time.strftime("%d.%m.%Y %H:%M", time.localtime(gap.end_millis / 1000))
     return (
-        f"⚠️ Hinweis: In der Quelle {source_name} fehlen Daten im Zeitraum von {start} bis {end}. "
+        f"{NOTICE_PREFIX} In der Quelle {source_name} fehlen Daten im Zeitraum von {start} bis {end}. "
         "Die Auswertung berücksichtigt ausschließlich die verfügbaren Datenpunkte."
     )
 

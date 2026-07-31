@@ -236,6 +236,9 @@ export interface ChatMessage {
   success?: boolean | null;
   provider?: string | null;
   model?: string | null;
+  /** Data-quality warnings (missing-data gaps) lifted out of this turn's tool results and shown
+   * under the answer -- see components/NoticeList.tsx. Persisted, so they survive a reload. */
+  notices?: string[] | null;
 }
 
 /** One candidate data source in a chat "welche Quelle?" disambiguation (see

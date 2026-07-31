@@ -829,7 +829,7 @@ async def get_dashboard(
             settings.get("systemPrompt"), user["displayName"], user["userRole"],
             settings.get("additionalInstructions", ""), user.get("appLanguage", "DE"),
             main_user.get("glucoseUnit", "MG_DL"), main_user.get("insulinPump", "NONE"), main_user.get("cgmSystem", "NONE"),
-            main_user_name=main_user["displayName"],
+            main_user_name=main_user["displayName"], aid_system=main_user.get("aidSystem", "NONE"),
         )
         start = time.monotonic()
         try:
@@ -941,6 +941,19 @@ class SendMessageRequest(BaseModel):
 
 
 _MAX_TOOL_ITERATIONS = 5
+
+
+def _extract_notices(tool_result: str) -> list[str]:
+    """Lifts the "⚠️ Hinweis: ..." lines a tool result carries inline (see
+    nightscout.NOTICE_PREFIX) back out as structured entries, so the UI can render them under the
+    answer instead of relying on the model to have repeated them. The model still gets them inline
+    and is told to repeat them verbatim -- both paths are wanted: the model needs them to reason
+    correctly, the user needs them shown even if the model drops them."""
+    return [
+        line.strip()
+        for line in tool_result.splitlines()
+        if line.strip().startswith(nightscout.NOTICE_PREFIX)
+    ]
 _SYSTEM_STATE_TIME_HINT = "\n\n[SYSTEM STATE]\nLokale Zeit: {time}\nMaßeinheit: mg/dL{iob_cob}\n[/SYSTEM STATE]"
 
 
@@ -1073,7 +1086,7 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
             settings.get("systemPrompt"), user["displayName"], user["userRole"],
             settings.get("additionalInstructions", ""), app_language,
             main_user.get("glucoseUnit", "MG_DL"), main_user.get("insulinPump", "NONE"), main_user.get("cgmSystem", "NONE"),
-            main_user_name=main_user["displayName"],
+            main_user_name=main_user["displayName"], aid_system=main_user.get("aidSystem", "NONE"),
         )
         + _SYSTEM_STATE_TIME_HINT.format(
             time=time.strftime("%d.%m.%Y %H:%M %Z"), iob_cob=_iob_cob_system_state_text(device_status),
@@ -1084,6 +1097,7 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
     conversation = [{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")]
 
     tool_activity: list[dict] = []
+    notices: list[str] = []
     total_duration_ms = 0
     total_tool_calls = 0
     prompt_tokens_sum = 0
@@ -1134,6 +1148,11 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
         ))
         for tc, result_text in zip(chat_result.tool_calls, results):
             tool_activity.append({"name": tc["name"], "arguments": tc["arguments"]})
+            for notice in _extract_notices(result_text):
+                # The same gap can be reported by repeated calls within one turn (e.g. the model
+                # re-queries a narrower window) -- show each distinct warning once.
+                if notice not in notices:
+                    notices.append(notice)
             conversation.append({"role": "tool", "tool_call_id": tc["id"], "name": tc["name"], "content": result_text})
     else:
         final_text = "Die Anfrage benötigte zu viele Werkzeug-Aufrufe -- bitte die Frage eingrenzen und erneut versuchen."
@@ -1145,6 +1164,7 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
     assistant_message = db.add_message(
         session_id, user["id"], "assistant", final_text,
         duration_ms=total_duration_ms, success=True, provider=provider_type, model=final_model,
+        notices=notices,
     )
     return {"userMessage": user_message, "assistantMessage": assistant_message, "toolActivity": tool_activity}
 

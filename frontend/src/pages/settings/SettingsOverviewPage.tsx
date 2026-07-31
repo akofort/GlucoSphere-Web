@@ -154,13 +154,6 @@ export default function SettingsOverviewPage() {
                 </div>
                 <div className="arrow">›</div>
               </Link>
-              <Link to="/settings/tips">
-                <div>
-                  <div className="title">{t.settingsTips}</div>
-                  <div className="subtitle">{t.settingsTipsSubtitle}</div>
-                </div>
-                <div className="arrow">›</div>
-              </Link>
               <Link to="/settings/system-prompt">
                 <div>
                   <div className="title">{t.settingsSystemPrompt}</div>
@@ -191,6 +184,16 @@ export default function SettingsOverviewPage() {
               </Link>
             </>
           )}
+          {/* Not admin-gated: the tips (free API key, model/provider recommendations, data-source
+              suggestions) are useful reading for every account, and /settings/tips has never been
+              behind AdminRoute in App.tsx either. */}
+          <Link to="/settings/tips">
+            <div>
+              <div className="title">{t.settingsTips}</div>
+              <div className="subtitle">{t.settingsTipsSubtitle}</div>
+            </div>
+            <div className="arrow">›</div>
+          </Link>
           <Link to="/settings/account">
             <div>
               <div className="title">{t.settingsAccount}</div>
