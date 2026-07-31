@@ -319,7 +319,16 @@ export const api = {
     request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) }),
   listProviders: () => request<{ providers: ProviderInfo[] }>("/providers"),
   testLlmConnection: (body: { providerType: string; apiKey: string; baseUrl?: string; model?: string }) =>
-    request<{ success: boolean; message: string }>("/llm/test-connection", {
+    request<{
+      success: boolean;
+      message: string;
+      /** The concretely resolved model that was actually called -- with "auto", the one auto
+       * picked. Shown so a verified model is unambiguous. */
+      model: string;
+      /** False for a manually entered model id that isn't in the built-in catalog (still valid --
+       * it was just verified by really calling it). */
+      modelIsKnown: boolean;
+    }>("/llm/test-connection", {
       method: "POST",
       body: JSON.stringify(body),
     }),

@@ -364,8 +364,10 @@ async def test_llm_connection(req: LlmTestRequest, _: dict = Depends(require_adm
         "claudeBaseUrl": req.baseUrl or model_catalog.DEFAULT_CLAUDE_BASE_URL,
         "openAiBaseUrl": req.baseUrl or model_catalog.DEFAULT_OPENAI_BASE_URL,
     }
-    ok, message = await llm_providers.test_connection(req.providerType, temp_settings)
-    return {"success": ok, "message": message}
+    ok, message, model = await llm_providers.test_connection(req.providerType, temp_settings)
+    # `model` is the concretely resolved id that was actually called (with "auto", the model auto
+    # picked) -- shown in the UI so a verified model is unambiguous, see LlmConfigPage.tsx.
+    return {"success": ok, "message": message, "model": model, "modelIsKnown": model_catalog.is_known_model(req.providerType, model)}
 
 
 class NightscoutTestRequest(BaseModel):

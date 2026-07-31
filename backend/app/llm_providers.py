@@ -37,6 +37,23 @@ def _resolved_model(provider_type: str, model_selection: str, purpose: str) -> s
     return catalog.resolve(provider_type, model_selection or catalog.AUTO_MODEL_ID, purpose)
 
 
+# Which settings field each provider's model selection lives in -- lets test_connection report the
+# model it actually resolved without duplicating chat()'s per-provider dispatch.
+_MODEL_SETTING_FIELD = {
+    "GEMINI": "geminiModel",
+    "CLAUDE": "claudeModel",
+    "OPENAI": "openAiModel",
+    "DEEPSEEK": "deepseekModel",
+}
+
+
+def resolved_model_for(provider_type: str, settings: dict, purpose: str = "CHAT") -> str:
+    field = _MODEL_SETTING_FIELD.get(provider_type)
+    if field is None:
+        raise ProviderError(f"Unbekannter oder nicht unterstützter Provider: {provider_type}")
+    return _resolved_model(provider_type, settings.get(field, ""), purpose)
+
+
 # Gemini's function-calling "parameters" schema is a restricted subset of JSON Schema, not the
 # full thing -- it rejects unrecognized keywords outright with an HTTP 400 covering the WHOLE
 # request (not just the offending tool). A blocklist doesn't hold up here: the first live failure
@@ -270,15 +287,68 @@ async def chat(
     raise ProviderError(f"Unbekannter oder nicht unterstützter Provider: {provider_type}")
 
 
-async def test_connection(provider_type: str, settings: dict) -> tuple[bool, str]:
+# Error codes that mean "unknown model" on their own, from the shapes these APIs actually return:
+# OpenAI/OpenRouter `"code": "model_not_found"`, Anthropic `"type": "not_found_error"`.
+_MODEL_ERROR_CODES = ("model_not_found", "not_found_error", "invalid_model")
+# Weaker phrases -- only conclusive when the message also names a model (see below), so that e.g. a
+# bare nginx "404 page not found" from a mistyped base URL isn't misreported as a bad model id.
+# Covers OpenAI "The model `x` does not exist", DeepSeek "Model Not Exist", Gemini "models/x is not
+# found for API version v1beta, or is not supported for generateContent", and OpenRouter
+# "<id> is not a valid model ID" (confirmed live -- the last one is why "not a valid" is here).
+_MODEL_ERROR_PHRASES = (
+    "not exist", "not found", "unknown", "invalid", "not a valid", "not supported", "unsupported",
+    # OpenRouter for a well-formed id that no provider currently serves ("No endpoints found for
+    # anthropic/claude-3.5-haiku.") -- also live-observed.
+    "no endpoints",
+)
+
+
+def _describe_failure(error_text: str, model: str) -> str:
+    """Makes a model-level failure obvious instead of leaving a raw HTTP dump -- the whole point of
+    "verify the model is usable", since an invalid model id and an invalid API key otherwise look
+    equally like a wall of provider JSON. The raw provider answer is always appended, so a
+    misclassification never hides what actually came back."""
+    lowered = error_text.lower()
+    # Either the provider says "model", or it echoes the offending id back -- the latter matters for
+    # providers that quote just the id without the word "model" anywhere near it.
+    mentions_model = "model" in lowered or (len(model) > 3 and model.lower() in lowered)
+    looks_model_specific = any(code in lowered for code in _MODEL_ERROR_CODES) or (
+        mentions_model and any(phrase in lowered for phrase in _MODEL_ERROR_PHRASES)
+    )
+    if looks_model_specific:
+        return f"Modell '{model}' ist bei diesem Anbieter/Endpunkt nicht verfügbar. Anbieter-Antwort: {error_text}"
+    return error_text
+
+
+async def test_connection(provider_type: str, settings: dict) -> tuple[bool, str, str]:
+    """Returns (ok, message, resolved_model).
+
+    The check is a real one-shot completion against the model that would actually be used -- so a
+    manually entered model id (see "Manuelle Eingabe" in LlmConfigPage.tsx) is verified to exist
+    AND to be usable with this key/endpoint, not merely well-formed. `resolved_model` is what the
+    caller should display: with "Automatisch" it's the concrete model auto resolved to, so the
+    admin can see which one was verified."""
+    try:
+        model = resolved_model_for(provider_type, settings)
+    except ProviderError as exc:
+        return False, str(exc), ""
+    if not model.strip():
+        return False, "Kein Modell angegeben -- bitte ein Modell auswählen oder eine Modell-ID eintragen.", ""
     try:
         result = await chat(
             provider_type, settings,
             system_prompt="Antworte nur mit dem einzelnen Wort OK.",
             messages=[{"role": "user", "content": "Testverbindung -- antworte mit OK."}],
         )
-        return True, result.text.strip()[:200] or "Verbindung erfolgreich."
     except ProviderError as exc:
-        return False, str(exc)
+        return False, _describe_failure(str(exc), model), model
     except httpx.HTTPError as exc:
-        return False, f"Netzwerkfehler: {exc}"
+        return False, f"Netzwerkfehler: {exc}", model
+    # An empty reply is worth flagging (the chat would show blank answers) but deliberately NOT a
+    # failure: saving is gated on a successful test, and some models legitimately return no plain
+    # text for a trivial prompt -- hard-failing those would lock the admin out of saving a model
+    # that actually works.
+    reply = result.text.strip()
+    if not reply:
+        return True, f"Verbindung erfolgreich, aber Modell '{model}' hat keinen Text zurückgegeben -- bitte im Chat gegenprüfen.", model
+    return True, reply[:200], model

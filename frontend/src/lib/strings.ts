@@ -154,6 +154,12 @@ export interface Strings {
   llmConfigBaseUrlReset: string;
   llmConfigModelLabel: string;
   llmConfigModelAuto: string;
+  llmConfigModelCustom: string;
+  llmConfigModelCustomLabel: string;
+  llmConfigModelCustomPlaceholder: string;
+  llmConfigModelCustomHint: string;
+  llmConfigModelRequired: string;
+  llmConfigModelVerified: (model: string) => string;
   llmConfigNotTested: string;
 
   dataSourcesTitle: string;
@@ -529,6 +535,15 @@ const de: Strings = {
   llmConfigBaseUrlReset: "Auf Standard zurücksetzen",
   llmConfigModelLabel: "Modell",
   llmConfigModelAuto: "Automatisch (empfohlen)",
+  llmConfigModelCustom: "Manuelle Eingabe …",
+  llmConfigModelCustomLabel: "Modell-ID",
+  llmConfigModelCustomPlaceholder: "z. B. gemini-3.6-flash",
+  llmConfigModelCustomHint:
+    "Exakte Modell-ID des Anbieters eintragen (Groß-/Kleinschreibung beachten) -- z. B. für ein neues " +
+    "Modell, das hier noch nicht gelistet ist, oder ein eigenes Modell über OpenRouter/Ollama. " +
+    "Beim Testen wird das Modell wirklich aufgerufen und damit geprüft, ob es existiert und nutzbar ist.",
+  llmConfigModelRequired: "Bitte eine Modell-ID eintragen.",
+  llmConfigModelVerified: (model) => `Modell verifiziert: ${model}`,
   llmConfigNotTested: "Noch nicht getestet – zum Speichern erst testen.",
 
   dataSourcesTitle: "Datenquellen",
@@ -919,6 +934,15 @@ const en: Strings = {
   llmConfigBaseUrlReset: "Reset to default",
   llmConfigModelLabel: "Model",
   llmConfigModelAuto: "Automatic (recommended)",
+  llmConfigModelCustom: "Manual entry …",
+  llmConfigModelCustomLabel: "Model ID",
+  llmConfigModelCustomPlaceholder: "e.g. gemini-3.6-flash",
+  llmConfigModelCustomHint:
+    "Enter the provider's exact model ID (case-sensitive) -- e.g. for a new model not listed here " +
+    "yet, or your own model via OpenRouter/Ollama. Testing really calls the model, which verifies " +
+    "that it exists and is usable.",
+  llmConfigModelRequired: "Please enter a model ID.",
+  llmConfigModelVerified: (model) => `Model verified: ${model}`,
   llmConfigNotTested: "Not tested yet -- test before saving.",
 
   dataSourcesTitle: "Data sources",

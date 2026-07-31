@@ -56,6 +56,15 @@ def options_for(provider_type: str) -> list[ModelOption]:
     return _CATALOG.get(provider_type, [])
 
 
+def is_known_model(provider_type: str, model_id: str) -> bool:
+    """Whether `model_id` is one of this provider's curated catalog entries. A manually entered
+    model id (see "Manuelle Eingabe" in LlmConfigPage.tsx) is deliberately NOT rejected for being
+    unknown here -- provider catalogs move faster than this list, and OpenAI-compatible endpoints
+    (OpenRouter, Ollama, ...) serve arbitrary model ids. Whether such a model actually works is
+    settled by really calling it, see llm_providers.test_connection."""
+    return any(m.id == model_id for m in options_for(provider_type))
+
+
 def resolve(provider_type: str, selection: str, purpose: str = "CHAT") -> str:
     """`purpose` is "CHAT" (fast/light model) or "ANALYSIS" (flagship model) -- mirrors
     `ModelCatalog.resolve`'s per-purpose "Automatisch" pick."""
