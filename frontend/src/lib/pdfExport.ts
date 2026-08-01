@@ -1,6 +1,6 @@
 import type { DashboardSeriesPoint } from "./api";
 import { aidLabel, cgmLabel } from "./deviceLabels";
-import { buildSparkline, SPARKLINE_H, SPARKLINE_W } from "./sparkline";
+import { buildSparkline, SPARKLINE_H, SPARKLINE_W, type SparklineDomain } from "./sparkline";
 import { STRINGS } from "./strings";
 
 // PDF export via the browser's own print dialog ("Save as PDF" destination) -- no client-side PDF
@@ -93,8 +93,9 @@ export function chartHtml(
   series: DashboardSeriesPoint[] | undefined,
   locale: string,
   title: string,
+  domain?: SparklineDomain,
 ): string {
-  const paths = buildSparkline(series);
+  const paths = buildSparkline(series, domain);
   if (!paths) return "";
   const labels = paths.ticks
     .map((tick, i) => {
@@ -111,6 +112,7 @@ export function chartHtml(
       <line x1="0" y1="${paths.lowY.toFixed(1)}" x2="${SPARKLINE_W}" y2="${paths.lowY.toFixed(1)}" stroke="#8b4f3f" stroke-opacity="0.5" stroke-width="1" stroke-dasharray="6,4" />
       <path d="${paths.area}" fill="#8b4f3f" fill-opacity="0.12" stroke="none" />
       <path d="${paths.line}" fill="none" stroke="#5c534f" stroke-width="1.5" />
+      <circle cx="${paths.lastX.toFixed(1)}" cy="${paths.lastY.toFixed(1)}" r="2.5" fill="#5c534f" />
       ${labels}
     </svg>`;
 }

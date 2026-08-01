@@ -10,6 +10,13 @@ const SERIES_REFRESH_MS = 15 * 60_000;
 /** A CGM delivers every ~5 minutes; past this the "current" value is not current any more, and
  * both the tile and the tab title say so instead of presenting a stale number as live. */
 export const STALE_AFTER_MS = 15 * 60_000;
+/** A deliberately chosen delayed source (Glooko syncs through the pump/app, often hours behind) is
+ * expected to be old -- flagging it after 15 minutes would mean permanently. */
+export const STALE_AFTER_MS_DELAYED = 3 * 60 * 60_000;
+
+export function staleThresholdFor(status: { delayed?: boolean } | null): number {
+  return status?.delayed ? STALE_AFTER_MS_DELAYED : STALE_AFTER_MS;
+}
 
 interface LiveStatusValue {
   status: LiveStatus | null;
@@ -88,7 +95,7 @@ export function liveDocumentTitle(status: LiveStatus | null, unit: "MG_DL" | "MM
     ? (status.latestValueMgDl / 18.0182).toFixed(1)
     : status.latestValueMgDl.toFixed(0);
   const arrow = status.latestTrendArrow ?? "";
-  const stale = now - (status.latestTimestampMillis ?? 0) > STALE_AFTER_MS;
+  const stale = now - (status.latestTimestampMillis ?? 0) > staleThresholdFor(status);
   return `${stale ? "⚠ " : ""}${value} ${arrow} · ${BASE_TITLE}`.replace(/\s+/g, " ").trim();
 }
 

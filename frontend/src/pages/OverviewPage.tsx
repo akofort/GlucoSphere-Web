@@ -208,7 +208,11 @@ export default function OverviewPage() {
     const body = `
       ${patientHeaderHtml(user, patientProfile, t)}
       <p>${escapeHtml(dashboard.statusReason ?? "")}</p>
-      ${chartHtml(dashboard.series, locale, t.overviewChartTitle)}
+      ${chartHtml(dashboard.series, locale, t.overviewChartTitle, dashboard.generatedAtMillis !== undefined
+        // Same 24h window the backend caps the chart series to -- so the printed curve ends where
+        // the data ends, exactly like on screen, instead of being stretched to the page width.
+        ? { from: dashboard.generatedAtMillis - 24 * 60 * 60 * 1000, to: dashboard.generatedAtMillis }
+        : undefined)}
       <h2>${escapeHtml(t.overviewMetricsTitle(dashboard.rangeLabel ?? ""))}</h2>
       <table>${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</table>
       ${dashboard.summaryText ? `<h2>${escapeHtml(t.overviewSummaryTitle)}</h2><div class="content">${escapeHtml(dashboard.summaryText)}</div>` : ""}

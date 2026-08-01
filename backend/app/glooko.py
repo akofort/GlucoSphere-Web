@@ -45,6 +45,7 @@ import asyncio
 import math
 import re
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -1116,6 +1117,43 @@ async def get_glucose(email: str, password: str, from_millis: int, to_millis: in
         "thresholdsUsed": {"lower": lower, "upper": upper, "unit": "mg/dL"},
         "band": band, "count": len(readings), "readings": readings,
     }
+
+
+@dataclass
+class GlucosePoint:
+    date_millis: int
+    mg_dl: float
+    #: Change in mg/dL to the previous 5-minute reading (see _build_timeline's "vel").
+    velocity: float
+
+
+async def fetch_glucose_points(email: str, password: str, from_millis: int, to_millis: int) -> list[GlucosePoint]:
+    """Plain CGM readings for the Übersicht's live graph -- same timeline the chat tools use, but
+    returned as values instead of the tool-shaped dict, so main.py doesn't have to parse ISO
+    strings back into timestamps."""
+    _assert_cap(from_millis, to_millis, _CAP_TIMELINE_DAYS, "fetch_glucose_points")
+    timeline, _sh, _di, _raw, _unit = await _prepared(email, password, from_millis, to_millis)
+    return [
+        GlucosePoint(date_millis=int(i["epoch"] * 1000), mg_dl=float(i["val"]), velocity=float(i.get("vel") or 0.0))
+        for i in timeline
+        if i["type"] == "CGM" and isinstance(i.get("epoch"), (int, float))
+    ]
+
+
+# Glooko reports no trend arrow of its own -- derived here from the change to the previous reading
+# (readings are 5 minutes apart, see _build_timeline's bucketing), using Nightscout's own
+# direction names so the UI needs no second mapping. Thresholds are Nightscout's mg/dL-per-minute
+# bands (1 / 2 / 3) multiplied by those 5 minutes.
+_TREND_STEPS = ((15.0, "DoubleUp", "DoubleDown"), (10.0, "SingleUp", "SingleDown"), (5.0, "FortyFiveUp", "FortyFiveDown"))
+
+
+def direction_for_velocity(velocity: float) -> str:
+    for threshold, up, down in _TREND_STEPS:
+        if velocity >= threshold:
+            return up
+        if velocity <= -threshold:
+            return down
+    return "Flat"
 
 
 async def get_chart_series(email: str, password: str, from_millis: int, to_millis: int, max_points: int = 250) -> dict:

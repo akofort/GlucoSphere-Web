@@ -776,13 +776,70 @@ async def _fetch_source_safe(source: dict, settings: dict, from_millis: int, to_
         return []
 
 
-# Sources the live tile may use: the native REST integrations only. MCP-backed sources are
-# excluded even when flagged realtime -- their extraction goes through LLM round trips
+# Sources the live tile may combine on its own: the realtime native REST integrations. MCP-backed
+# sources are excluded even when flagged realtime -- their extraction goes through LLM round trips
 # (dashboard_sources.fetch_glucose_entries), which takes tens of seconds and costs tokens; neither
 # belongs behind a 30-second poll.
 _LIVE_SOURCE_IDS = ("nightscout", "dexcom", "librelinkup")
+# Glooko is a native REST source too (no LLM), but its data is delayed by the pump/app sync. It is
+# therefore only used when the user explicitly picks it as the graph source -- mixing delayed points
+# into the automatic combination would quietly age the "live" curve. See DataSourcesPage.
+_LIVE_DELAYED_SOURCE_IDS = ("glooko",)
 _LIVE_VALUE_WINDOW_MS = 30 * 60 * 1000
 _LIVE_CHART_MAX_POINTS = 300
+# A delayed source gets fetched at most this often, regardless of how fast the tile polls: Glooko
+# needs a full login per fetch and only ever returns data that is minutes-to-hours old anyway, so
+# hitting it every 30 seconds would be pure load with nothing to show for it. The tile keeps
+# updating from this cache; the displayed "Stand" is the reading's own timestamp, so nothing is
+# presented as fresher than it is.
+_LIVE_DELAYED_TTL_SECONDS = 300
+_live_delayed_cache: dict[str, tuple[float, list[nightscout.NightscoutEntry]]] = {}
+
+
+def _live_sources(settings: dict) -> list[dict]:
+    """Every source the live tile can read without an LLM -- the realtime ones plus the delayed
+    natives. `isRealtime` marks which of them may be combined automatically."""
+    sources = [s for s in _available_dashboard_sources(settings) if s["id"] in _LIVE_SOURCE_IDS]
+    if settings.get("glookoUsername") and settings.get("glookoEnabled", True):
+        sources.append({
+            "id": "glooko", "name": settings.get("glookoDisplayName") or "Glooko",
+            "category": "GLUCOSE_TREATMENTS", "computesMetrics": True, "isRealtime": False, "server": None,
+        })
+    return sources
+
+
+_LIVE_FALLBACK_WINDOW_MS = 24 * 60 * 60 * 1000
+
+
+async def _fetch_live_entries(source: dict, settings: dict, from_millis: int, to_millis: int) -> list[nightscout.NightscoutEntry]:
+    """Delayed sources deliberately ignore `from_millis` and always read the full 24h window: their
+    newest reading is regularly older than the 30-minute value-poll window, which would otherwise
+    make the tile flip between "no data" (value poll) and a value (curve poll)."""
+    if source["id"] != "glooko":
+        entries = await _fetch_source_safe(source, settings, from_millis, to_millis)
+        if not entries and to_millis - from_millis < _LIVE_FALLBACK_WINDOW_MS:
+            # The narrow value-poll window found nothing -- widen it once instead of reporting "no
+            # data". A sensor that last reported 40 minutes ago (warm-up, signal loss, phone out of
+            # range) still HAS a last value, and the tile's whole "Stand" line exists to say how old
+            # it is. Costs one extra request only in exactly that case.
+            entries = await _fetch_source_safe(source, settings, to_millis - _LIVE_FALLBACK_WINDOW_MS, to_millis)
+        return entries
+
+    cached = _live_delayed_cache.get("glooko")
+    if cached is not None and time.monotonic() - cached[0] < _LIVE_DELAYED_TTL_SECONDS:
+        return cached[1]
+    try:
+        points = await glooko.fetch_glucose_points(
+            settings["glookoUsername"], settings["glookoPassword"], to_millis - 24 * 60 * 60 * 1000, to_millis,
+        )
+    except Exception:  # noqa: BLE001 -- same contract as _fetch_source_safe: never break the tile
+        return []
+    entries = [
+        nightscout.NightscoutEntry(p.mg_dl, p.date_millis, glooko.direction_for_velocity(p.velocity))
+        for p in points
+    ]
+    _live_delayed_cache["glooko"] = (time.monotonic(), entries)
+    return entries
 
 
 @app.get("/api/live-status")
@@ -796,13 +853,23 @@ async def get_live_status(
     `includeSeries=false` narrows the fetch window to the last 30 minutes, which is all the current
     value needs; the full range is only pulled on the slower curve refresh."""
     settings = db.load_settings()
-    sources = [s for s in _available_dashboard_sources(settings) if s["id"] in _LIVE_SOURCE_IDS]
+    available = _live_sources(settings)
+    if not available:
+        return {"configured": False}
+
+    # An explicit pick (Einstellungen -> Datenquellen -> "Quelle für den Übersichts-Graphen") wins
+    # and is the only way a delayed source such as Glooko is used at all. An empty or stale pick
+    # (source since disabled/removed) falls back to combining the realtime sources rather than
+    # leaving the tile blank.
+    chosen_id = settings.get("overviewGraphSourceId") or ""
+    chosen = [s for s in available if s["id"] == chosen_id]
+    sources = chosen or [s for s in available if s.get("isRealtime")]
     if not sources:
         return {"configured": False}
 
     now = int(time.time() * 1000)
     window_ms = rangeHours * 60 * 60 * 1000 if includeSeries else _LIVE_VALUE_WINDOW_MS
-    results = await asyncio.gather(*[_fetch_source_safe(s, settings, now - window_ms, now) for s in sources])
+    results = await asyncio.gather(*[_fetch_live_entries(s, settings, now - window_ms, now) for s in sources])
 
     contributing, entries = [], []
     for source, source_entries in zip(sources, results):
@@ -818,6 +885,9 @@ async def get_live_status(
         "configured": True,
         "hasData": True,
         "sourceNames": contributing,
+        # A deliberately chosen delayed source (Glooko) is normal, not a fault -- the UI uses this
+        # to allow a much older reading before it greys the tile out as stale.
+        "delayed": not any(s.get("isRealtime") for s in sources),
         "latestValueMgDl": latest.sgv_mg_dl,
         "latestTrendArrow": nightscout.trend_arrow_for(latest.direction),
         "latestDirection": latest.direction,
@@ -1562,6 +1632,10 @@ async def data_sources_health(_: dict = Depends(require_admin)) -> dict:
         checks.append(("feelfit", feelfit.test_connection(settings["feelfitEmail"], settings["feelfitPassword"])))
     if settings.get("googleHealthRefreshToken"):
         checks.append(("google_health", _check_google_health(settings)))
+    if settings.get("withingsRefreshToken"):
+        # Was missing entirely, so the Withings card never showed a status dot at all -- not even a
+        # red one -- while every other source had one.
+        checks.append(("withings", _check_withings(settings)))
     if settings.get("glookoUsername"):
         checks.append(("glooko", glooko.test_connection(settings["glookoUsername"], settings["glookoPassword"])))
     for server in mcp_servers:

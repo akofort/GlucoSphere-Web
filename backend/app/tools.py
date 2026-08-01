@@ -279,9 +279,7 @@ async def list_available_tools(settings: dict, mcp_servers: list[dict]) -> list[
                 "name": WITHINGS_TOOL_NAME,
                 "description": "Ruft Gewicht (kg) und Körperfettanteil (%) der letzten 3 Monate über die direkte "
                                "Withings-REST-API ab, inklusive Trendrichtung je Kennzahl (steigend/fallend/stabil, "
-                               "verglichen zwischen erster und letzter Messung im Zeitraum). Direkte, native "
-                               "Integration (Blau-Kennzeichnung '⚡ Direkt-API' in den Einstellungen), keine MCP-"
-                               "Anbindung.",
+                               "verglichen zwischen erster und letzter Messung im Zeitraum).",
                 "inputSchema": _WITHINGS_SCHEMA,
                 "_source": "withings",
                 "_realtime": False,

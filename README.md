@@ -161,8 +161,19 @@ Access-Token-Refresh läuft automatisch vor jedem Tool-Aufruf (`oauth.get_valid_
 Die Übersicht besteht aus zwei Teilen mit bewusst unterschiedlicher Ökonomie:
 
 1. **Live-Kachel** (`components/LiveGlucoseTile.tsx`, `GET /api/live-status`) -- aktueller Wert mit
-   Tendenz und die 24h-Kurve, direkt aus den nativen Echtzeit-Quellen (Nightscout, Dexcom,
-   LibreLinkUp). **Kein LLM, keine MCP-Quellen** (deren Extraktion läuft über LLM-Runden und dauert
+   Tendenz und die 24h-Kurve, aus den nativen Echtzeit-Quellen (Nightscout, Dexcom, LibreLinkUp).
+   Welche davon den Graphen speist, wählt der Nutzer selbst: "Quelle für den Übersichts-Graphen"
+   auf der jeweiligen Karte unter Einstellungen -> Datenquellen (`overviewGraphSourceId`). Ohne
+   Auswahl werden alle Echtzeit-Quellen kombiniert; eine Auswahl, deren Quelle inzwischen
+   deaktiviert wurde, fällt auf dieses Verhalten zurück, statt die Kachel leer zu lassen.
+   **Glooko** ist ebenfalls wählbar, obwohl es zeitverzögert ist (native REST-Quelle, also weiterhin
+   ohne LLM): es wird aber ausschließlich nach expliziter Auswahl verwendet -- in die automatische
+   Kombination gemischt würde es die "Live"-Kurve still altern lassen. Es wird höchstens alle
+   5 Minuten abgerufen (jeder Abruf braucht einen vollständigen Login), immer über das volle
+   24h-Fenster, und die Kachel gilt erst nach 3 Stunden als veraltet statt nach 15 Minuten --
+   sonst wäre sie dauerhaft ausgegraut. Der Trendpfeil wird aus der Änderung zum vorherigen Wert
+   abgeleitet, Glooko liefert selbst keinen.
+   **Kein LLM, keine MCP-Quellen** (deren Extraktion läuft über LLM-Runden und dauert
    zig Sekunden -- das gehört nicht hinter einen 30-Sekunden-Takt). Der Wert aktualisiert sich alle
    30 s, die Kurve alle 15 min, beides pausiert in einem nicht sichtbaren Tab. Der **Stand** des
    Messwerts steht immer dabei; ab 15 Minuten Alter verliert die Kachel ihre Ampelfarbe und

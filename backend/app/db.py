@@ -232,6 +232,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # always recorded, but one row per HTTP request is only worth its noise when actively debugging
     # who called what.
     "accessLogEnabled": False,
+    # Which source feeds the Übersicht's live tile (current value + 24h curve). Empty means
+    # "every realtime source combined", the previous behavior. Set per data source in
+    # Einstellungen -> Datenquellen; only sources that can answer without an LLM are offerable,
+    # see main.py's _LIVE_SOURCE_IDS.
+    "overviewGraphSourceId": "",
     # Bearer token for GlucoSphere-Web AS an MCP server (see mcp_server.py, /api/mcp) -- distinct
     # from `mcp_servers` above, which is this app acting as an MCP CLIENT of other servers. Empty
     # means "not yet generated"; AuthMiddleware rejects every /api/mcp request while empty.

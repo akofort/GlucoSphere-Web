@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { buildSparkline, SPARKLINE_H, SPARKLINE_W } from "../lib/sparkline";
 import { useLanguage } from "../lib/LanguageContext";
-import { STALE_AFTER_MS, useLiveStatus } from "../lib/LiveStatusContext";
+import { staleThresholdFor, useLiveStatus } from "../lib/LiveStatusContext";
 
 /** Nightscout direction strings -> how strongly the value is moving. Used to shift the color band
  * when the trend is heading for a limit (see liveBand). */
@@ -67,11 +67,19 @@ export default function LiveGlucoseTile({ glucoseUnit }: Props) {
     );
   }
 
-  const chart = buildSparkline(status.series);
+  // X axis spans the requested window (server clock, so a wrong client clock can't shift the
+  // curve), NOT the data range -- that is what makes the line visibly stop where the source's data
+  // stops instead of always reaching the right edge.
+  const windowEnd = status.generatedAtMillis ?? Date.now();
+  const windowHours = status.rangeHours ?? 24;
+  const chart = buildSparkline(status.series, {
+    from: windowEnd - windowHours * 60 * 60_000,
+    to: windowEnd,
+  });
   const band = liveBand(status.latestValueMgDl, status.latestDirection);
   const readingAt = status.latestTimestampMillis ?? 0;
   const ageMinutes = Math.max(0, Math.round((Date.now() - readingAt) / 60_000));
-  const stale = Date.now() - readingAt > STALE_AFTER_MS;
+  const stale = Date.now() - readingAt > staleThresholdFor(status);
 
   return (
     <>
@@ -91,6 +99,15 @@ export default function LiveGlucoseTile({ glucoseUnit }: Props) {
             <path d={chart.area} fill="currentColor" fillOpacity="0.16" stroke="none" />
             <path d={chart.line} fill="none" stroke="currentColor" strokeOpacity="0.55" strokeWidth="2" />
           </svg>
+          {/* Endpunkt-Markierung: macht aus "die Linie hört hier auf" eine bewusste Aussage statt
+              eines abgeschnitten wirkenden Verlaufs. Als HTML-Element und nicht als <circle>, weil
+              das SVG mit preserveAspectRatio="none" verzerrt skaliert -- ein Kreis darin wäre eine
+              Ellipse. */}
+          <span
+            className="live-last-point"
+            aria-hidden="true"
+            style={{ left: `${(chart.lastX / SPARKLINE_W) * 100}%`, top: `${(chart.lastY / SPARKLINE_H) * 100}%` }}
+          />
           <div className="status-banner-axis" aria-hidden="true">
             {chart.ticks.map((tick, i) => (
               <span

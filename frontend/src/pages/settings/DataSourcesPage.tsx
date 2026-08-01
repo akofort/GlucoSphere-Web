@@ -210,6 +210,11 @@ export default function DataSourcesPage() {
   const [withingsRedirectUriCopied, setWithingsRedirectUriCopied] = useState(false);
   const withingsRedirectUri = `${window.location.origin}/api/withings/oauth/callback`;
 
+  // Which source feeds the Übersicht's live graph. One global choice, offered on each source that
+  // can answer it -- must stay in sync with main.py's _LIVE_SOURCE_IDS, which is the list of
+  // sources the live tile can read without an LLM round trip.
+  const [graphSourceId, setGraphSourceId] = useState("");
+
   const [servers, setServers] = useState<McpServer[]>([]);
   const [addingServer, setAddingServer] = useState(false);
 
@@ -243,6 +248,7 @@ export default function DataSourcesPage() {
       setWithingsCategory(s.withingsCategory);
       setWithingsDisplayName(s.withingsDisplayName);
       setWithingsLoggedIn(Boolean(s.withingsRefreshToken));
+      setGraphSourceId(s.overviewGraphSourceId ?? "");
       setDexcomUsername(s.dexcomUsername);
       setDexcomPassword(s.dexcomPassword);
       setDexcomRegion(s.dexcomRegion);
@@ -330,6 +336,26 @@ export default function DataSourcesPage() {
       // clipboard API unavailable -- the field is still selectable/copyable manually
     }
   };
+
+  /** Saved immediately, like the Aktiv-Schalter -- it is a single global choice, so making it wait
+   * for the per-card "Speichern" would let two cards disagree on screen. Clicking the already
+   * selected source clears it, back to "alle Echtzeit-Quellen kombiniert". */
+  const chooseGraphSource = async (sourceId: string) => {
+    const next = graphSourceId === sourceId ? "" : sourceId;
+    setGraphSourceId(next);
+    const updated = await api.updateSettings({ overviewGraphSourceId: next });
+    setSettings(updated);
+  };
+
+  const graphSourceToggle = (sourceId: string, hint: string = t.dsGraphSourceHint) => (
+    <div className="field">
+      <label className="inline-toggle">
+        <input type="checkbox" checked={graphSourceId === sourceId} onChange={() => chooseGraphSource(sourceId)} />
+        {t.dsGraphSourceLabel}
+      </label>
+      <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{hint}</p>
+    </div>
+  );
 
   const saveWithings = async () => {
     setWithingsSaving(true);
@@ -616,6 +642,7 @@ export default function DataSourcesPage() {
           <input type="text" value={nightscoutDisplayName} onChange={(e) => setNightscoutDisplayName(e.target.value)} />
           <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
         </div>
+        {graphSourceToggle("nightscout")}
 
         {testResult && <div className={`test-result ${testResult.ok ? "ok" : "error"}`}>{testResult.message}</div>}
 
@@ -670,6 +697,7 @@ export default function DataSourcesPage() {
           <input type="text" value={dexcomDisplayName} onChange={(e) => setDexcomDisplayName(e.target.value)} />
           <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
         </div>
+        {graphSourceToggle("dexcom")}
 
         {dexcomTestResult && <div className={`test-result ${dexcomTestResult.ok ? "ok" : "error"}`}>{dexcomTestResult.message}</div>}
 
@@ -717,6 +745,7 @@ export default function DataSourcesPage() {
           <input type="text" value={libreDisplayName} onChange={(e) => setLibreDisplayName(e.target.value)} />
           <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
         </div>
+        {graphSourceToggle("librelinkup")}
 
         {libreTestResult && <div className={`test-result ${libreTestResult.ok ? "ok" : "error"}`}>{libreTestResult.message}</div>}
 
@@ -856,19 +885,15 @@ export default function DataSourcesPage() {
         </div>
       </details>
 
-      <details className="card" style={{ borderLeft: "3px solid var(--rest-api-color)" }}>
+      {/* Keine Sonderkennzeichnung mehr: Withings war die einzige Quelle mit farbigem Rand und
+          "⚡ Direkt-API"-Badge, obwohl Nightscout, Dexcom und Libre genauso direkte REST-Anbindungen
+          sind -- die Hervorhebung suggerierte einen Unterschied, den es nicht gibt. */}
+      <details className="card">
         <summary>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
             <HealthDot sourceId="withings" health={health} />
             <h2>{t.dataSourcesWithingsTitle}</h2>
             <span className="category-tag">{categoryLabels[withingsCategory] ?? withingsCategory}</span>
-            <span
-              className="category-tag"
-              style={{ color: "var(--rest-api-color)", borderColor: "var(--rest-api-color)" }}
-              title={t.dsRestApiHint}
-            >
-              ⚡ {t.dsRestApiBadge}
-            </span>
           </div>
           <label className="inline-toggle" onClick={(e) => e.stopPropagation()}>
             <input type="checkbox" checked={withingsEnabled} onChange={toggleWithingsEnabled} />
@@ -965,6 +990,7 @@ export default function DataSourcesPage() {
           <input type="text" value={glookoDisplayName} onChange={(e) => setGlookoDisplayName(e.target.value)} />
           <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.dsDisplayNameHint}</p>
         </div>
+        {graphSourceToggle("glooko", t.dsGraphSourceDelayedHint)}
 
         {glookoTestResult && <div className={`test-result ${glookoTestResult.ok ? "ok" : "error"}`}>{glookoTestResult.message}</div>}
 

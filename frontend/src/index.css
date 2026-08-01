@@ -477,6 +477,19 @@ details.card summary:first-child {
   text-align: right;
 }
 
+/* Markiert den letzten vorhandenen Messwert. Wichtig, seit die X-Achse das Zeitfenster abbildet und
+   nicht mehr den Datenbereich: die Linie endet dort, wo die Quelle aufhört zu liefern, und der
+   Punkt macht dieses Ende sichtbar statt zufällig abgeschnitten wirkend. */
+.live-last-point {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+
 .live-value {
   font-size: 3.2rem;
   font-weight: 700;

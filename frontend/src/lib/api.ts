@@ -106,6 +106,9 @@ export interface Settings {
   /** Einstellungen -> Logging -> Benutzung & Zugriffe: whether every /api/ request is recorded on
    * top of the always-on login/chat/tool events. */
   accessLogEnabled: boolean;
+  /** Which source feeds the Übersicht's live tile (current value + 24h curve). Empty = combine
+   * every realtime source. Only LLM-free REST sources are offerable, see DataSourcesPage. */
+  overviewGraphSourceId: string;
   /** Display-only currency label for the token cost table (prices themselves live server-side,
    * keyed by "{PROVIDER}|{model}" -- see GET/PUT /api/token-usage). */
   tokenPriceCurrency: string;
@@ -246,6 +249,9 @@ export interface LiveStatus {
   generatedAtMillis?: number;
   series?: DashboardSeriesPoint[];
   rangeHours?: number;
+  /** True when the tile is fed by a deliberately chosen delayed source (Glooko) -- readings are
+   * then expected to be hours old, so the UI waits much longer before flagging them stale. */
+  delayed?: boolean;
 }
 
 export interface ChatSession {

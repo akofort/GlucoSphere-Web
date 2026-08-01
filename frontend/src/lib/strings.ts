@@ -216,8 +216,9 @@ export interface Strings {
   dataSourcesWithingsLoginAgain: string;
   dataSourcesWithingsLoggedIn: string;
   dataSourcesWithingsNotLoggedIn: string;
-  dsRestApiHint: string;
-  dsRestApiBadge: string;
+  dsGraphSourceLabel: string;
+  dsGraphSourceHint: string;
+  dsGraphSourceDelayedHint: string;
   dataSourcesDexcomTitle: string;
   dataSourcesDexcomHint: string;
   dataSourcesDexcomUsername: string;
@@ -691,8 +692,9 @@ const de: Strings = {
   dataSourcesWithingsLoginAgain: "Erneut anmelden",
   dataSourcesWithingsLoggedIn: "Angemeldet",
   dataSourcesWithingsNotLoggedIn: "Nicht angemeldet",
-  dsRestApiHint: "Direkt-API (i.d.R. schneller)",
-  dsRestApiBadge: "Direkt-API",
+  dsGraphSourceLabel: "Quelle für den Übersichts-Graphen",
+  dsGraphSourceHint: "Diese Quelle liefert den aktuellen Wert und die 24h-Kurve oben auf der Übersicht. Nur eine Quelle gleichzeitig; ohne Auswahl werden alle Echtzeit-Quellen kombiniert.",
+  dsGraphSourceDelayedHint: "Diese Quelle liefert den aktuellen Wert und die 24h-Kurve oben auf der Übersicht. Achtung: Glooko ist zeitverzögert -- die Werte stammen aus der Pumpen-/App-Synchronisation und können Stunden alt sein. Der angezeigte Stand sagt jeweils, wie alt der Wert wirklich ist; abgerufen wird höchstens alle 5 Minuten.",
   dataSourcesDexcomTitle: "Dexcom",
   dataSourcesDexcomHint: "Direkter Zugriff auf aktuelle CGM-Werte über die Dexcom-Share-API (dieselbe Cloud-API wie die Dexcom-Follow-App) -- liefert nur die letzten bis zu 24 Stunden, keine ältere Historie. Zugangsdaten des Dexcom-Kontos eintragen (nicht das Follower-Konto).",
   dataSourcesDexcomUsername: "Dexcom-Benutzername",
@@ -1204,8 +1206,9 @@ const en: Strings = {
   dataSourcesWithingsLoginAgain: "Log in again",
   dataSourcesWithingsLoggedIn: "Logged in",
   dataSourcesWithingsNotLoggedIn: "Not logged in",
-  dsRestApiHint: "Direct API (usually faster)",
-  dsRestApiBadge: "Direct API",
+  dsGraphSourceLabel: "Source for the overview graph",
+  dsGraphSourceHint: "This source provides the current value and the 24h curve at the top of the Overview. Only one source at a time; with none selected, all realtime sources are combined.",
+  dsGraphSourceDelayedHint: "This source provides the current value and the 24h curve at the top of the Overview. Note: Glooko is delayed -- its readings come from the pump/app sync and can be hours old. The displayed timestamp always states how old the value really is; it is fetched at most every 5 minutes.",
   dataSourcesDexcomTitle: "Dexcom",
   dataSourcesDexcomHint: "Direct access to current CGM readings via the Dexcom Share API (the same cloud API used by the Dexcom Follow app) -- only returns up to the last 24 hours, no older history. Enter the Dexcom account's own credentials (not a follower account).",
   dataSourcesDexcomUsername: "Dexcom username",
