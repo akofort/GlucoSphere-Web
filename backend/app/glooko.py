@@ -78,8 +78,32 @@ def _iso(millis: int) -> str:
     return datetime.fromtimestamp(millis / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
+# Glooko's series timestamps are WALL-CLOCK time in the patient's own timezone, even though the
+# payload labels them "Z" (verified live against a real account: the newest point came back as
+# `{"x": 1785582667, "timestamp": "2026-08-01T11:11:07.000Z"}` while glooko.com displayed exactly
+# that reading as 11:11 local, with the account in CEST -- i.e. two hours away from the UTC instant
+# the "Z" claims). Every helper in this module therefore formats these values with `tz=utc`, which
+# renders them back as the wall-clock time they actually are; the "Z" suffix is deliberately NOT
+# emitted, since claiming UTC is what makes the reading two hours younger than it is.
 def _epoch_to_iso(epoch_seconds: float) -> str:
-    return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _wallclock_to_epoch_millis(epoch_seconds: float) -> int:
+    """Glooko's wall-clock value -> a real point in time. `astimezone()` on a naive datetime reads
+    it as local time and applies the offset that was in force on THAT date, so readings from before
+    a DST switch convert correctly too."""
+    naive_local = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).replace(tzinfo=None)
+    return int(naive_local.astimezone().timestamp() * 1000)
+
+
+def _epoch_millis_to_wallclock(millis: int) -> int:
+    """The inverse, for the startDate/endDate query parameters: Glooko reads those in the same
+    wall-clock convention it writes. Passing a real UTC instant east of Greenwich therefore asks
+    for a window that ends `offset` hours ago -- in CEST that silently dropped the two most recent
+    hours from every fetch."""
+    naive_local = datetime.fromtimestamp(millis / 1000)
+    return int(naive_local.replace(tzinfo=timezone.utc).timestamp() * 1000)
 
 
 def _assert_cap(from_millis: int, to_millis: int, max_days: int, tool_name: str) -> None:
@@ -1130,11 +1154,22 @@ class GlucosePoint:
 async def fetch_glucose_points(email: str, password: str, from_millis: int, to_millis: int) -> list[GlucosePoint]:
     """Plain CGM readings for the Übersicht's live graph -- same timeline the chat tools use, but
     returned as values instead of the tool-shaped dict, so main.py doesn't have to parse ISO
-    strings back into timestamps."""
+    strings back into timestamps.
+
+    Unlike the chat tools, which only ever render these values back as wall-clock text, the graph
+    plots them on a real time axis against "now" -- so here the wall-clock value MUST be converted
+    to an actual instant (see _wallclock_to_epoch_millis). Without that, a reading from 11:11 local
+    was plotted as 13:11 local and the curve showed two hours of data that does not exist."""
     _assert_cap(from_millis, to_millis, _CAP_TIMELINE_DAYS, "fetch_glucose_points")
-    timeline, _sh, _di, _raw, _unit = await _prepared(email, password, from_millis, to_millis)
+    timeline, _sh, _di, _raw, _unit = await _prepared(
+        email, password, _epoch_millis_to_wallclock(from_millis), _epoch_millis_to_wallclock(to_millis),
+    )
     return [
-        GlucosePoint(date_millis=int(i["epoch"] * 1000), mg_dl=float(i["val"]), velocity=float(i.get("vel") or 0.0))
+        GlucosePoint(
+            date_millis=_wallclock_to_epoch_millis(i["epoch"]),
+            mg_dl=float(i["val"]),
+            velocity=float(i.get("vel") or 0.0),
+        )
         for i in timeline
         if i["type"] == "CGM" and isinstance(i.get("epoch"), (int, float))
     ]
