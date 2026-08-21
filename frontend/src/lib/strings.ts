@@ -68,6 +68,8 @@ export interface Strings {
   chatPlaceholder: string;
   chatSend: string;
   chatEmptyState: string;
+  chatExamplesTitle: string;
+  chatExamplePrompts: string[];
   chatComposing: string;
   chatSourceChoiceAll: string;
   chatExportPdf: string;
@@ -184,6 +186,9 @@ export interface Strings {
   llmConfigModelCustomHint: string;
   llmConfigModelRequired: string;
   llmConfigModelVerified: (model: string) => string;
+  llmConfigModelSearchPlaceholder: string;
+  llmConfigModelSearchCount: (shown: number, total: number) => string;
+  llmConfigModelPriceHint: (input: string, output: string) => string;
   llmConfigNotTested: string;
   llmConfigRefreshModels: string;
   llmConfigRefreshing: string;
@@ -510,6 +515,15 @@ const de: Strings = {
   chatPlaceholder: "Nachricht eingeben …",
   chatSend: "Senden",
   chatEmptyState: 'Frage stellen, z. B. "Wie ist mein Wert gerade?"',
+  chatExamplesTitle: "Zum Beispiel kannst du fragen:",
+  chatExamplePrompts: [
+    "Erstelle einen ausführlichen Bericht für mein Diabetes-Team über die letzten 3 Monate.",
+    "Wie haben sich die letzten Anpassungen ausgewirkt?",
+    "Wie war meine Zeit im Zielbereich in der letzten Woche?",
+    "Gab es in den letzten 7 Tagen auffällige Unterzuckerungen?",
+    "Vergleiche meine Werte von dieser Woche mit letzter Woche.",
+    "Zu welchen Tageszeiten schwankt mein Wert am stärksten?",
+  ],
   chatComposing: "✍️ Formuliere Antwort …",
   chatSourceChoiceAll: "Alle Quellen",
   chatExportPdf: "Als PDF",
@@ -656,14 +670,16 @@ const de: Strings = {
     "Beim Testen wird das Modell wirklich aufgerufen und damit geprüft, ob es existiert und nutzbar ist.",
   llmConfigModelRequired: "Bitte eine Modell-ID eintragen.",
   llmConfigModelVerified: (model) => `Modell verifiziert: ${model}`,
+  llmConfigModelSearchPlaceholder: "Modell suchen …",
+  llmConfigModelSearchCount: (shown, total) => `${shown} von ${total} Modellen`,
+  llmConfigModelPriceHint: (input, output) => `${input} $ / ${output} $ pro 1 Mio. Token (Eingabe/Ausgabe)`,
   llmConfigNotTested: "Noch nicht getestet – zum Speichern erst testen.",
   llmConfigRefreshModels: "Modelle aktualisieren",
   llmConfigRefreshing: "Rufe Modelle ab …",
   llmConfigRefreshHint:
-    "Holt die aktuell verfügbaren Modelle direkt beim Anbieter (mit dem hinterlegten API-Key) und übernimmt " +
-    "die 4 relevantesten in die Auswahl -- so folgt die Liste neuen Modellen ohne neue GlucoSphere-Web-Version. " +
-    "Die Auswahl ist eine Heuristik (Chat-Modelle, neueste Versionen, schnell + Flaggschiff); alles andere " +
-    "bleibt über \"Manuelle Eingabe\" erreichbar.",
+    "Holt alle Chat-Modelle direkt beim Anbieter ab (mit dem hinterlegten API-Key) -- so folgt die Liste neuen " +
+    "Modellen ohne neue GlucoSphere-Web-Version. Modelle mit bekanntem Preis (über OpenRouter ermittelt) stehen " +
+    "günstigste zuerst oben; bei vielen Modellen (z. B. OpenRouter) hilft die Suche darunter beim Auffinden.",
   llmConfigModelsLive: (date) => `Live abgerufen am ${date}`,
   llmConfigModelsBuiltin: "Mitgelieferte Auswahl (noch nicht aktualisiert)",
   llmConfigResetModels: "Auf mitgelieferte Liste zurücksetzen",
@@ -1024,6 +1040,15 @@ const en: Strings = {
   chatPlaceholder: "Type a message …",
   chatSend: "Send",
   chatEmptyState: 'Ask a question, e.g. "How is my level right now?"',
+  chatExamplesTitle: "For example, you could ask:",
+  chatExamplePrompts: [
+    "Create a detailed report for my diabetes care team covering the last 3 months.",
+    "How have the recent adjustments affected my numbers?",
+    "What was my time in range over the last week?",
+    "Were there any notable lows in the last 7 days?",
+    "Compare this week's readings with last week's.",
+    "At what times of day does my level swing the most?",
+  ],
   chatComposing: "✍️ Composing answer …",
   chatSourceChoiceAll: "All sources",
   chatExportPdf: "As PDF",
@@ -1170,14 +1195,16 @@ const en: Strings = {
     "that it exists and is usable.",
   llmConfigModelRequired: "Please enter a model ID.",
   llmConfigModelVerified: (model) => `Model verified: ${model}`,
+  llmConfigModelSearchPlaceholder: "Search models …",
+  llmConfigModelSearchCount: (shown, total) => `${shown} of ${total} models`,
+  llmConfigModelPriceHint: (input, output) => `$${input} / $${output} per 1M tokens (input/output)`,
   llmConfigNotTested: "Not tested yet -- test before saving.",
   llmConfigRefreshModels: "Refresh models",
   llmConfigRefreshing: "Fetching models …",
   llmConfigRefreshHint:
-    "Fetches the currently available models straight from the provider (using the stored API key) and takes " +
-    "the 4 most relevant ones into the picker -- so the list follows new releases without a new GlucoSphere-Web " +
-    "version. The selection is a heuristic (chat models, newest versions, fast + flagship); anything else stays " +
-    "reachable via \"Manual entry\".",
+    "Fetches every chat-capable model straight from the provider (using the stored API key) -- so the list " +
+    "follows new releases without a new GlucoSphere-Web version. Models with a known price (resolved via " +
+    "OpenRouter) sort cheapest first; with many models (e.g. OpenRouter) the search below helps find one.",
   llmConfigModelsLive: (date) => `Fetched live on ${date}`,
   llmConfigModelsBuiltin: "Built-in selection (not refreshed yet)",
   llmConfigResetModels: "Reset to built-in list",

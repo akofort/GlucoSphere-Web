@@ -915,6 +915,39 @@ details.card summary:first-child {
   padding: 40px 20px;
 }
 
+.chat-examples-title {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 20px 0 10px;
+}
+
+/* Suggested opening questions shown when a chat has no messages yet -- longer, full-sentence
+   prompts (unlike the short filter chips elsewhere), so stacked and left-aligned rather than
+   wrapped pills. Clicking one sends it straight into the chat, see ChatPage.tsx. */
+.chat-examples {
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.chat-examples .chip {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.chat-examples .chip:hover,
+.chat-examples .chip:focus-visible {
+  background: var(--bg);
+  border-color: var(--accent);
+  outline: none;
+}
+
 .tips-list {
   margin: 8px 0 0;
   padding-left: 20px;

@@ -152,6 +152,11 @@ export interface ModelOption {
   id: string;
   label: string;
   priceTier: string;
+  /** USD per 1M tokens, only present for a live-refreshed model OpenRouter's price list covered
+   * (see model_discovery.build_live_catalog). Absent for the built-in catalog and for live models
+   * OpenRouter doesn't carry a price for. */
+  inputPrice?: number;
+  outputPrice?: number;
 }
 
 export interface ProviderInfo {

@@ -211,7 +211,7 @@ API-Key bleiben Nicht-Nightscout-Quellen leer statt einen Fehler zu werfen.
 ## Modell-Auswahl aktuell halten (ohne neues Release)
 
 "Einstellungen -> LLM-Konfiguration -> **Modelle aktualisieren**" holt die aktuell verfügbaren
-Modelle direkt beim jeweiligen Anbieter ab und übernimmt die 4 relevantesten in die Auswahl
+Modelle direkt beim jeweiligen Anbieter ab und übernimmt **alle** Chat-Modelle in die Auswahl
 (`backend/app/model_discovery.py`, gecacht in `settings.providerModelCache`):
 
 | Anbieter | Endpunkt | Auth |
@@ -222,13 +222,19 @@ Modelle direkt beim jeweiligen Anbieter ab und übernimmt die 4 relevantesten in
 | DeepSeek | `GET https://api.deepseek.com/models` | `Authorization: Bearer <key>` |
 
 Die Rohlisten sind lang und enthalten viele Nicht-Chat-Modelle (Embeddings, TTS, Bild, Moderation);
-`pick_relevant` filtert diese heraus, entdoppelt Alias-/Datums- und Verpackungs-Varianten
-(`…-latest`, `…-20251001`, `…-0731`, `…-fast`, `…-16k`), sortiert nach Versionsnummer und liefert
-höchstens 4 Einträge -- bewusst **schnellstes zuerst, Flaggschiff zuletzt**, weil "Automatisch"
-genau diese Reihenfolge nutzt (Chat = erstes, Übersicht-Analyse = letztes, siehe
-`model_catalog.resolve`). Sobald eine Live-Liste existiert, löst "Automatisch" auch nur noch
-innerhalb dieser Liste auf -- sonst würde die App eine fest verdrahtete, womöglich abgekündigte
-Modell-ID aufrufen.
+`_filter_usable` filtert diese heraus und entdoppelt Alias-/Datums- und Verpackungs-Varianten
+(`…-latest`, `…-20251001`, `…-0731`, `…-fast`, `…-16k`). Für den Rest wird zusätzlich Preisdaten von
+OpenRouter abgeglichen (`match_price`, kein eigener Key nötig): Modelle mit bekanntem Preis stehen
+**günstigste zuerst** oben, Modelle ohne Preistreffer folgen danach -- bewusst **schnellstes zuerst,
+Flaggschiff zuletzt** (`_heuristic_order`), weil "Automatisch" genau diese Reihenfolge nutzt (Chat =
+erstes, Übersicht-Analyse = letztes, siehe `model_catalog.resolve`). Sobald eine Live-Liste
+existiert, löst "Automatisch" auch nur noch innerhalb dieser Liste auf -- sonst würde die App eine
+fest verdrahtete, womöglich abgekündigte Modell-ID aufrufen.
+
+Bei einem großen Katalog (v. a. OpenRouter, teils mehrere hundert Modelle) zeigt die Modell-Auswahl
+in LlmConfigPage.tsx ab 8 Einträgen zusätzlich ein Suchfeld, das die Liste client-seitig nach ID/Label
+filtert, und wird zu einer scrollbaren Listbox statt eines Dropdowns -- so bleibt der komplette
+Katalog navigierbar und auffindbar, statt auf eine Handvoll Vorschläge gekürzt zu werden.
 
 Zwei Details, die aus dem Abgleich mit den echten Katalogen stammen:
 
@@ -239,9 +245,10 @@ Zwei Details, die aus dem Abgleich mit den echten Katalogen stammen:
   steht vorn: nach reiner Versionssortierung verliert sie sonst gegen das teurere `flash`/`mini`
   derselben Generation -- obwohl genau sie der sinnvolle Alltags-Default für den Chat ist.
 
-Es ist eine Heuristik, keine kuratierte Liste -- das ist der Punkt: sie funktioniert auch für
-Modelle, die es beim Bauen dieser Version noch nicht gab. Alles, was sie nicht trifft, bleibt über
-"Manuelle Eingabe" erreichbar, und "Auf mitgelieferte Liste zurücksetzen" macht den Abruf rückgängig.
+Die Fallback-Sortierung ohne Preistreffer ist eine Heuristik, keine kuratierte Liste -- das ist der
+Punkt: sie funktioniert auch für Modelle, die es beim Bauen dieser Version noch nicht gab. Alles,
+was sie nicht trifft, bleibt über "Manuelle Eingabe" erreichbar, und "Auf mitgelieferte Liste
+zurücksetzen" macht den Abruf rückgängig.
 
 ## Sprache (DE/EN)
 

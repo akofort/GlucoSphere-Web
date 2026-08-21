@@ -405,9 +405,9 @@ async def refresh_provider_models(
     req: ProviderRefreshRequest = ProviderRefreshRequest(),
     _: dict = Depends(require_admin),
 ) -> dict:
-    """Fetches this provider's current model list from its own API and caches the (at most 4, see
-    model_discovery.pick_relevant) relevant ones. Explicitly triggered -- never on a chat/dashboard
-    request path, which must not depend on a third-party list being up."""
+    """Fetches this provider's current chat-capable models from its own API and caches them,
+    cheapest-priced first (see model_discovery.build_live_catalog). Explicitly triggered -- never
+    on a chat/dashboard request path, which must not depend on a third-party list being up."""
     if provider_type not in model_catalog.PROVIDER_LABELS:
         raise HTTPException(400, f"Unbekannter Provider: {provider_type}")
     settings = db.load_settings()

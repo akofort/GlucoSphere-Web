@@ -280,7 +280,24 @@ export default function ChatPage() {
         )}
       </div>
       <div className="content chat-content">
-        {messages.length === 0 && <div className="empty-state">{t.chatEmptyState}</div>}
+        {messages.length === 0 && (
+          <div className="empty-state">
+            <p>{t.chatEmptyState}</p>
+            <p className="chat-examples-title">{t.chatExamplesTitle}</p>
+            <div className="range-chips chat-examples">
+              {t.chatExamplePrompts.map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  className="chip"
+                  onClick={() => send(example, sessionId)}
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="chat-messages">
           {messages.map((m, i) => (
             <div key={m.id}>

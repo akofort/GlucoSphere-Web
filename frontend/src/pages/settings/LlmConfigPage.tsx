@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import SettingsScaffold from "../../components/SettingsScaffold";
-import { api, type ProviderInfo, type Settings } from "../../lib/api";
+import { api, type ModelOption, type ProviderInfo, type Settings } from "../../lib/api";
 import { useLanguage } from "../../lib/LanguageContext";
 
 const KEY_FIELD: Record<string, keyof Settings> = {
@@ -41,6 +41,20 @@ function isCustomModelFor(providers: ProviderInfo[], providerType: string, model
   return !models.some((m) => m.id === modelId);
 }
 
+// Below this many entries the list is short enough to just scan (the built-in catalog tops out at
+// 3-4 per provider) -- the search box only earns its keep once a live refresh (esp. OpenRouter,
+// hundreds of models) makes the plain <select> hard to scan.
+const MODEL_SEARCH_THRESHOLD = 8;
+
+function formatModelLabel(m: ModelOption, priceHint: (input: string, output: string) => string): string {
+  if (m.outputPrice != null && m.outputPrice > 0) {
+    const input = (m.inputPrice ?? 0).toFixed(2);
+    const output = m.outputPrice.toFixed(2);
+    return `${m.label} -- ${priceHint(input, output)}`;
+  }
+  return m.priceTier ? `${m.label} ${m.priceTier}` : m.label;
+}
+
 export default function LlmConfigPage() {
   const { t } = useLanguage();
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -50,6 +64,7 @@ export default function LlmConfigPage() {
   // Explicit rather than derived from `model`: while typing a custom id that happens to pass
   // through a catalog id, a derived flag would snap the field shut mid-keystroke.
   const [customMode, setCustomMode] = useState(false);
+  const [modelSearch, setModelSearch] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string; model?: string } | null>(null);
   const [testing, setTesting] = useState(false);
@@ -82,6 +97,7 @@ export default function LlmConfigPage() {
     const urlField = BASE_URL_FIELD[type];
     setBaseUrl(urlField ? String(settings[urlField] ?? "") : "");
     setTestResult(null);
+    setModelSearch("");
   };
 
   const test = async () => {
@@ -146,6 +162,20 @@ export default function LlmConfigPage() {
       setSaving(false);
     }
   };
+
+  const activeProviderModels = useMemo(
+    () => providers.find((p) => p.type === settings?.llmProviderType)?.models ?? [],
+    [providers, settings]
+  );
+  const filteredModels = useMemo(() => {
+    if (activeProviderModels.length <= MODEL_SEARCH_THRESHOLD || !modelSearch.trim()) return activeProviderModels;
+    const q = modelSearch.trim().toLowerCase();
+    // Never filter the currently selected model out of view -- otherwise typing a search term
+    // makes the <select> silently lose its visible selection.
+    return activeProviderModels.filter(
+      (m) => m.id === model || m.id.toLowerCase().includes(q) || m.label.toLowerCase().includes(q)
+    );
+  }, [activeProviderModels, modelSearch, model]);
 
   if (!settings) return <SettingsScaffold title={t.llmConfigTitle}>{t.loading}</SettingsScaffold>;
 
@@ -215,6 +245,17 @@ export default function LlmConfigPage() {
         )}
         <div className="field">
           <label>{t.llmConfigModelLabel}</label>
+          {activeProviderModels.length > MODEL_SEARCH_THRESHOLD && (
+            <input
+              type="text"
+              value={modelSearch}
+              onChange={(e) => setModelSearch(e.target.value)}
+              placeholder={t.llmConfigModelSearchPlaceholder}
+              autoComplete="off"
+              spellCheck={false}
+              style={{ marginBottom: 6 }}
+            />
+          )}
           <select
             value={customMode ? CUSTOM_MODEL_OPTION : model}
             onChange={(e) => {
@@ -228,15 +269,21 @@ export default function LlmConfigPage() {
                 setModel(value);
               }
             }}
+            size={activeProviderModels.length > MODEL_SEARCH_THRESHOLD ? 8 : undefined}
           >
             <option value="auto">{t.llmConfigModelAuto}</option>
-            {activeProvider?.models.map((m) => (
+            {filteredModels.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label} {m.priceTier}
+                {formatModelLabel(m, t.llmConfigModelPriceHint)}
               </option>
             ))}
             <option value={CUSTOM_MODEL_OPTION}>{t.llmConfigModelCustom}</option>
           </select>
+          {activeProviderModels.length > MODEL_SEARCH_THRESHOLD && (
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
+              {t.llmConfigModelSearchCount(filteredModels.length, activeProviderModels.length)}
+            </p>
+          )}
           <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 4 }}>
             {activeProvider?.source === "live" && activeProvider.fetchedAt
               ? t.llmConfigModelsLive(new Date(activeProvider.fetchedAt).toLocaleString())

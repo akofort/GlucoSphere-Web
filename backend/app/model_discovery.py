@@ -14,8 +14,10 @@ path -- these are extra network round trips to third parties):
 2. **Model lists** (Einstellungen -> LLM-Konfiguration): each provider's own endpoint, with that
    provider's key, so the picker can follow new model releases without a GlucoSphere-Web release.
    The raw lists are long and full of non-chat entries (embeddings, TTS, image, moderation), so
-   `pick_relevant` narrows them to at most 4 -- ordered fast-first/flagship-last, the same
-   convention `model_catalog.resolve` relies on for "Automatisch".
+   `build_live_catalog` strips those and returns the rest -- cheapest-priced first, unpriced models
+   after (fast-first/flagship-last, the same convention `model_catalog.resolve` relies on for
+   "Automatisch"). The picker itself (LlmConfigPage.tsx) offers a search box to keep an
+   OpenRouter-sized list (hundreds of models) navigable.
 """
 from __future__ import annotations
 
@@ -273,55 +275,59 @@ def _version_score(model_id: str) -> float:
     return max(numbers) if numbers else 0.0
 
 
-MAX_RELEVANT_MODELS = 4
+# Safety cap only -- not a curated "top N". OpenRouter alone lists several hundred chat models, and
+# the whole point of this refresh is to surface all of them (searchable in the picker, see
+# LlmConfigPage.tsx) rather than a hand-picked handful. This just guards against a pathological
+# response blowing up the settings payload.
+MAX_MODELS = 400
 
 
-def pick_relevant(model_ids: list[str], limit: int = MAX_RELEVANT_MODELS) -> list[str]:
-    """At most `limit` chat-capable models, ordered fast-first then flagship-last.
-
-    Deliberately a heuristic, not a curated list -- the whole point is that it keeps working for
-    models that did not exist when this shipped. Anything it gets wrong is still reachable through
-    "Manuelle Eingabe" in the LLM config, which accepts any model id."""
+def _filter_usable(model_ids: list[str]) -> list[str]:
+    """Drops non-chat entries (embeddings, TTS, image, …) and deduplicates alias pairs
+    ("claude-x-latest" next to "claude-x-20250101", "deepseek-v4-flash" next to
+    "deepseek-v4-flash-0731") -- keeps the shorter, more stable-looking id of each pair."""
     usable = [m for m in model_ids if not any(marker in m.lower() for marker in _EXCLUDE_MARKERS)]
-    if not usable:
-        return []
-    # Deduplicate alias pairs ("claude-x-latest" next to "claude-x-20250101", "deepseek-v4-flash"
-    # next to "deepseek-v4-flash-0731") -- keep the shorter, more stable-looking id.
     by_base: dict[str, str] = {}
     for model_id in sorted(usable, key=len):
         by_base.setdefault(_canonical_base(model_id), model_id)
-    usable = list(by_base.values())
+    return list(by_base.values())
 
-    def rank(model_id: str) -> tuple[float, int, str]:
-        # Newest first; on a tie the plainest id wins, so "claude-opus-5" is preferred over a
-        # priced-up variant like "claude-opus-5-fast".
-        return (-_version_score(model_id), len(model_id), model_id)
 
-    fast = sorted([m for m in usable if _has_marker(m, _FAST_MARKERS)], key=rank)
-    flagship = sorted([m for m in usable if _has_marker(m, _FLAGSHIP_MARKERS) and m not in fast], key=rank)
-    rest = sorted([m for m in usable if m not in fast and m not in flagship], key=rank)
+def _rank(model_id: str) -> tuple[float, int, str]:
+    # Newest first; on a tie the plainest id wins, so "claude-opus-5" is preferred over a
+    # priced-up variant like "claude-opus-5-fast".
+    return (-_version_score(model_id), len(model_id), model_id)
 
-    # Guarantee the cheapest tier a slot: without this, two same-generation fast models (e.g.
-    # gemini-3.6-flash and gemini-3.6-pro-flash) can fill the fast half and push the newest
-    # "…-flash-lite" out entirely -- exactly the model most setups want as the everyday default.
+
+def _heuristic_order(model_ids: list[str]) -> list[str]:
+    """Fast-first / flagship-last ordering for models with no known price -- the fallback the
+    ordering contract for `resolve` relies on (see model_catalog.resolve) when price data doesn't
+    cover a model. Deliberately a heuristic, not a curated list, so it keeps working for models
+    that did not exist when this shipped."""
+    fast = sorted([m for m in model_ids if _has_marker(m, _FAST_MARKERS)], key=_rank)
+    flagship = sorted([m for m in model_ids if _has_marker(m, _FLAGSHIP_MARKERS) and m not in fast], key=_rank)
+    rest = sorted([m for m in model_ids if m not in fast and m not in flagship], key=_rank)
+
+    # Guarantee the cheapest tier a slot near the front: without this, two same-generation fast
+    # models (e.g. gemini-3.6-flash and gemini-3.6-pro-flash) can push the newest "…-flash-lite"
+    # behind them -- exactly the model most setups want as the everyday default.
     lite = [m for m in fast if _has_marker(m, _LITE_MARKERS)]
     if lite:
         newest_lite = lite[0]  # `fast` is already version-sorted
         fast = [newest_lite] + [m for m in fast if m != newest_lite]
 
-    half = max(1, limit // 2)
-    picked_fast = fast[:half]
-    # Reversed: the whole list reads cheap -> capable, and the LAST entry is the best-ranked
-    # flagship, which is what "Automatisch" hands the dashboard analysis.
-    picked_flagship = list(reversed(flagship[: limit - len(picked_fast)]))
-    result = picked_fast + picked_flagship
-    for model_id in rest:
-        if len(result) >= limit:
-            break
-        # Insert unclassifiable models between fast and flagship -- they are neither, and the
-        # ordering contract only cares about the first and last entry.
-        result.insert(len(picked_fast), model_id)
-    return result[:limit]
+    # Reversed: the LAST entry is the best-ranked flagship, which is what "Automatisch" hands the
+    # dashboard analysis (see model_catalog.resolve).
+    return fast + rest + list(reversed(flagship))
+
+
+def pick_relevant(model_ids: list[str], limit: int = MAX_MODELS) -> list[str]:
+    """All chat-capable models (up to the safety cap), fast-first/flagship-last. Used when no price
+    data is available at all -- see build_live_catalog for the price-aware ordering used otherwise."""
+    usable = _filter_usable(model_ids)
+    if not usable:
+        return []
+    return _heuristic_order(usable)[:limit]
 
 
 def price_tier(price: dict[str, float] | None) -> str:
@@ -340,22 +346,47 @@ def price_tier(price: dict[str, float] | None) -> str:
 
 
 async def build_live_catalog(provider_type: str, settings: dict) -> dict[str, Any]:
-    """{"models": [{"id", "label", "priceTier"}], "fetchedAt": ms} for one provider -- the shape
-    cached in settings["providerModelCache"] and merged into GET /api/providers."""
-    model_ids = pick_relevant(await fetch_model_ids(provider_type, settings))
+    """{"models": [{"id", "label", "priceTier", "inputPrice"?, "outputPrice"?}], "fetchedAt": ms}
+    for one provider -- the shape cached in settings["providerModelCache"] and merged into
+    GET /api/providers.
+
+    All of the provider's chat-capable models are returned (up to MAX_MODELS), not a curated
+    handful -- the picker (LlmConfigPage.tsx) filters/searches client-side, which is the only way
+    to keep an OpenRouter-sized catalog (hundreds of models) actually browsable. Models with a
+    known OpenRouter price sort first, cheapest output-price first ("günstige Modelle oben");
+    models without a matched price follow, fast-first/flagship-last (see _heuristic_order) so
+    "Automatisch" still resolves to sensible ends of the list either way (see
+    model_catalog.resolve)."""
+    usable = _filter_usable(await fetch_model_ids(provider_type, settings))
     try:
         prices = await fetch_openrouter_prices()
     except DiscoveryError:
         # Prices are a nice-to-have here; a model list without €-hints is still a useful refresh.
         prices = {}
-    return {
-        "models": [
-            {
-                "id": model_id,
-                "label": model_id,
-                "priceTier": price_tier(match_price(provider_type, model_id, prices)),
-            }
-            for model_id in model_ids
-        ],
-        "fetchedAt": int(time.time() * 1000),
-    }
+
+    priced: list[tuple[str, dict[str, float]]] = []
+    unpriced: list[str] = []
+    for model_id in usable:
+        price = match_price(provider_type, model_id, prices) if prices else None
+        # output/input both 0 is indistinguishable from "no price data" (see price_tier) -- treat
+        # it the same way rather than falsely claiming it's free.
+        if price and (price.get("output", 0.0) > 0 or price.get("input", 0.0) > 0):
+            priced.append((model_id, price))
+        else:
+            unpriced.append(model_id)
+    priced.sort(key=lambda entry: entry[1].get("output") or entry[1].get("input") or 0.0)
+
+    models = [
+        {
+            "id": model_id,
+            "label": model_id,
+            "priceTier": price_tier(price),
+            "inputPrice": round(price["input"], 4),
+            "outputPrice": round(price["output"], 4),
+        }
+        for model_id, price in priced
+    ] + [
+        {"id": model_id, "label": model_id, "priceTier": ""}
+        for model_id in _heuristic_order(unpriced)
+    ]
+    return {"models": models[:MAX_MODELS], "fetchedAt": int(time.time() * 1000)}
