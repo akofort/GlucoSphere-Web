@@ -77,7 +77,13 @@ async def fetch_entries(base_url: str, auth_method: str, token: str, from_millis
         **_base_query_params(base_url),
         "find[date][$gte]": from_millis,
         "find[date][$lte]": to_millis,
-        "count": 100_000,
+        # Freestyle Libre uploads every minute (vs. 5 minutes for older CGMs), so a 3-month window
+        # can hold ~130k readings; 100_000 used to silently truncate the start of such a range
+        # (Nightscout returns the newest `count` matches). 200_000 comfortably covers a 3-month
+        # report at 1-minute cadence with margin; callers that need the full resolution rely on
+        # `aggregate_daily`/`DAILY_AGGREGATION_THRESHOLD_MILLIS` in tools.py to keep the LLM prompt
+        # small regardless of how many raw entries come back here.
+        "count": 200_000,
     }
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         resp = await client.get(url, params=params, headers=headers)
@@ -227,6 +233,65 @@ def compute_status(m: DashboardMetrics, is_en: bool = False) -> StatusEvaluation
         "GREEN",
         "Status GREEN -- all values within the recommended target range." if is_en
         else "Status GRÜN -- alle Werte im empfohlenen Zielbereich.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Daily aggregation -- keeps wide time ranges (e.g. a 3-month report) from
+# dumping one text line per raw reading into the LLM prompt. Freestyle Libre
+# uploads a reading every minute (vs. 5 minutes for older CGMs), so a 3-month
+# raw dump is ~130k lines / ~1M tokens, well past any model's context window.
+# One line per calendar day keeps a 3-month range to ~90 lines regardless of
+# the source's sampling interval.
+# ---------------------------------------------------------------------------
+
+# Below this span, entries are still sent to the LLM one line per reading --
+# short ranges (e.g. "was war heute los") benefit from per-reading detail,
+# and even at 1-minute cadence stay well within context limits.
+DAILY_AGGREGATION_THRESHOLD_MILLIS = 3 * 24 * 60 * 60 * 1000
+
+
+@dataclass
+class DailyAggregate:
+    date_millis: int  # local midnight of the aggregated day, for sorting/formatting
+    count: int
+    avg_mg_dl: float
+    min_mg_dl: float
+    max_mg_dl: float
+    tir_percent: float
+    hypo_percent: float
+    hyper_percent: float
+
+
+def aggregate_daily(
+    entries: list[NightscoutEntry], lower_mg_dl: float = 70.0, upper_mg_dl: float = 180.0,
+) -> list[DailyAggregate]:
+    """One `DailyAggregate` per calendar day (local time) that has at least one reading, sorted
+    ascending -- days with no data simply have no entry, consistent with `detect_gaps`/
+    `compute_metrics` never fabricating values for missing stretches."""
+    by_day: dict[str, list[NightscoutEntry]] = {}
+    for e in entries:
+        day_key = time.strftime("%Y-%m-%d", time.localtime(e.date_millis / 1000))
+        by_day.setdefault(day_key, []).append(e)
+    aggregates = []
+    for day_key, day_entries in by_day.items():
+        values = [e.sgv_mg_dl for e in day_entries]
+        n = len(values)
+        avg = sum(values) / n
+        tir = 100.0 * sum(1 for v in values if lower_mg_dl <= v <= upper_mg_dl) / n
+        hypo = 100.0 * sum(1 for v in values if v < lower_mg_dl) / n
+        hyper = 100.0 * sum(1 for v in values if v > upper_mg_dl) / n
+        midnight = int(time.mktime(time.strptime(day_key, "%Y-%m-%d"))) * 1000
+        aggregates.append(DailyAggregate(midnight, n, avg, min(values), max(values), tir, hypo, hyper))
+    aggregates.sort(key=lambda a: a.date_millis)
+    return aggregates
+
+
+def format_daily_aggregate(a: DailyAggregate) -> str:
+    date_str = time.strftime("%d.%m.%Y", time.localtime(a.date_millis / 1000))
+    return (
+        f"{date_str}: Ø{a.avg_mg_dl:.0f} mg/dL (Min {a.min_mg_dl:.0f}, Max {a.max_mg_dl:.0f}, "
+        f"n={a.count}) | TIR {a.tir_percent:.0f}% | Hypo {a.hypo_percent:.0f}% | Hyper {a.hyper_percent:.0f}%"
     )
 
 

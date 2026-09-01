@@ -48,7 +48,7 @@ _NIGHTSCOUT_SCHEMA = {
     "type": "object",
     "properties": {
         "fromEpochMillis": {"type": "integer", "description": "Start des Zeitraums als Unix-Zeitstempel in Millisekunden"},
-        "toEpochMillis": {"type": "integer", "description": "Ende des Zeitraums als Unix-Zeitstempel in Millisekunden"},
+        "toEpochMillis": {"type": "integer", "description": "Ende des Zeitraums als Unix-Zeitstempel in Millisekunden. Bei Zeiträumen über 3 Tagen werden die Werte automatisch zu Tagesdurchschnitten (Ø, Min, Max, Time in Range) statt einzelner Messwerte zurückgegeben."},
     },
     "required": ["fromEpochMillis", "toEpochMillis"],
 }
@@ -779,10 +779,22 @@ async def _execute_nightscout(arguments: dict[str, Any], settings: dict, is_en: 
         return f"Fehler beim Abruf der Nightscout-Daten: {exc}"
     if not entries:
         return "Keine Blutzucker-Werte im angefragten Zeitraum gefunden."
-    lines = [
-        f"{time.strftime('%d.%m. %H:%M', time.localtime(e.date_millis / 1000))}: {e.sgv_mg_dl:.0f} mg/dL ({nightscout.trend_arrow_for(e.direction)})"
-        for e in sorted(entries, key=lambda e: e.date_millis)
-    ]
+    if to_millis - from_millis > nightscout.DAILY_AGGREGATION_THRESHOLD_MILLIS:
+        # Wide ranges (e.g. a 3-month report) aggregate to one line per calendar day instead of
+        # one line per raw reading -- with Freestyle Libre uploading every minute (vs. every 5
+        # minutes previously), a 3-month raw dump is ~130k lines and blows past any model's
+        # context window. Short ranges keep full per-reading detail below.
+        lines = [
+            "Hinweis: Zeitraum > 3 Tage -- Werte sind zu Tagesdurchschnitten aggregiert "
+            "(Ø, Min, Max, Time in Range) statt einzelner Messwerte.",
+            "",
+        ]
+        lines.extend(nightscout.format_daily_aggregate(a) for a in nightscout.aggregate_daily(entries))
+    else:
+        lines = [
+            f"{time.strftime('%d.%m. %H:%M', time.localtime(e.date_millis / 1000))}: {e.sgv_mg_dl:.0f} mg/dL ({nightscout.trend_arrow_for(e.direction)})"
+            for e in sorted(entries, key=lambda e: e.date_millis)
+        ]
     # Item 3's "Automatische Erkennung von Datenlücken" -- appended, never silently filled/
     # estimated; compute_metrics/TIR/etc. downstream already only ever aggregate the entries
     # actually present, so nothing else needs to change to honor "AUSSCHLIESSLICH aus den
