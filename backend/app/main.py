@@ -1112,6 +1112,7 @@ async def get_dashboard(
             settings.get("additionalInstructions", ""), user.get("appLanguage", "DE"),
             main_user.get("glucoseUnit", "MG_DL"), main_user.get("insulinPump", "NONE"), main_user.get("cgmSystem", "NONE"),
             main_user_name=main_user["displayName"], aid_system=main_user.get("aidSystem", "NONE"),
+            main_user_last_name=main_user.get("lastName", ""), main_user_birth_date=main_user.get("birthDate", ""),
         )
         start = time.monotonic()
         try:
@@ -1387,6 +1388,7 @@ async def send_message(session_id: str, req: SendMessageRequest, user: dict = De
             settings.get("additionalInstructions", ""), app_language,
             main_user.get("glucoseUnit", "MG_DL"), main_user.get("insulinPump", "NONE"), main_user.get("cgmSystem", "NONE"),
             main_user_name=main_user["displayName"], aid_system=main_user.get("aidSystem", "NONE"),
+            main_user_last_name=main_user.get("lastName", ""), main_user_birth_date=main_user.get("birthDate", ""),
         )
         + _SYSTEM_STATE_TIME_HINT.format(
             time=time.strftime("%d.%m.%Y %H:%M %Z"), iob_cob=_iob_cob_system_state_text(device_status),

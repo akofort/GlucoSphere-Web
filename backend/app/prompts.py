@@ -20,6 +20,8 @@ what keeps replies correct for that case too.
 """
 from __future__ import annotations
 
+from datetime import date
+
 DEFAULT_SYSTEM_PROMPT_DE = """# ROLLE & IDENTITÄT
 Du bist GlucoSphere, ein hochgradig zuverlässiger, medizinischer und freundlicher KI-Assistent für die Diabetesversorgung. Du unterstützt die User bei allen alltäglichen und komplexen Fragestellungen. Dein Fokus liegt auf präzisen, gut strukturierten und lösungsorientierten Antworten. Du sprichst den Nutzer persönlich mit dem Namen {userName} in der Du-Form an.
 Begrüße {userName} zu Beginn eines neuen Gesprächs kurz und persönlich mit Namen -- das ist die einzige dafür vorgesehene Stelle für die Begrüßung, wiederhole den Namen nicht in jeder folgenden Antwort.
@@ -222,6 +224,50 @@ _AID_CLOSED_LOOP_NOTE_EN = (
     "{mainUserName} dosed them by hand."
 )
 
+# A report meant for the diabetes team/doctor needs to identify the patient unambiguously on
+# paper -- unlike the in-chat address (first name only, see {mainUserName} above), a document
+# handed to a new reader on its own must carry the full name and date of birth. Filled in with
+# {mainUserFullName}/{mainUserBirthDate} (already formatted, see build_system_prompt) or, if either
+# is missing from the profile, an explicit instruction to say so instead of omitting it silently --
+# consistent with the anti-hallucination rule against silently dropping required information.
+_REPORT_HEADER_INSTRUCTION_DE = (
+    "\n\n# BERICHTE FÜR DAS DIABETES-TEAM / ÄRZTLICHE STELLEN\n"
+    "Wird ein Bericht, eine Zusammenfassung oder Auswertung erstellt, die für das Diabetes-Team, "
+    "eine Diabetologin/einen Diabetologen oder eine andere Arztpraxis bestimmt ist (z. B. auf "
+    "Bitte um einen \"Bericht für mein Diabetes-Team\" o. Ä.), beginne den Bericht IMMER mit einem "
+    "kurzen Kopfblock mit den vollständigen Patientendaten: Vor- und Nachname sowie Geburtsdatum. "
+    "{reportHeaderLine}"
+)
+_REPORT_HEADER_INSTRUCTION_EN = (
+    "\n\n# REPORTS FOR THE DIABETES TEAM / MEDICAL PROFESSIONALS\n"
+    "Whenever you create a report, summary, or analysis intended for the diabetes team, a "
+    "diabetologist, or another medical practice (e.g. when asked for a \"report for my diabetes "
+    "team\" or similar), ALWAYS start the report with a short header block giving the full patient "
+    "identity: first and last name plus date of birth. {reportHeaderLine}"
+)
+_REPORT_HEADER_LINE_COMPLETE_DE = 'Verwende dafür exakt: "Patient: {fullName}, geb. {birthDate}".'
+_REPORT_HEADER_LINE_COMPLETE_EN = 'Use exactly: "Patient: {fullName}, DOB: {birthDate}".'
+_REPORT_HEADER_LINE_INCOMPLETE_DE = (
+    "Im Profil von {mainUserName} fehlt aktuell {missingFields} -- weise in diesem Fall am Anfang "
+    "des Berichts kurz darauf hin, dass diese Angabe(n) im Profil (Einstellungen -> Konto) ergänzt "
+    "werden sollten, statt sie zu erfinden oder wegzulassen."
+)
+_REPORT_HEADER_LINE_INCOMPLETE_EN = (
+    "{mainUserName}'s profile is currently missing {missingFields} -- in that case, briefly note "
+    "at the start of the report that this should be added in the profile (Settings -> Account) "
+    "instead of inventing it or leaving it out silently."
+)
+
+
+def _format_birth_date(iso_date: str, is_en: bool) -> str:
+    try:
+        year, month, day = (int(part) for part in iso_date.split("-"))
+        parsed = date(year, month, day)
+    except (ValueError, TypeError):
+        return ""
+    return parsed.strftime("%m/%d/%Y") if is_en else parsed.strftime("%d.%m.%Y")
+
+
 # Final, deliberately last-but-one block (the language instruction keeps the very last slot for
 # recency). Restates the grounding requirement in one compact place -- the detailed anti-
 # hallucination rules live further up and lose salience on long prompts with smaller/faster models.
@@ -258,6 +304,8 @@ def build_system_prompt(
     cgm_system: str = "NONE",
     main_user_name: str = "",
     aid_system: str = "NONE",
+    main_user_last_name: str = "",
+    main_user_birth_date: str = "",
 ) -> str:
     """`main_user_name` is the DIABETIKER (Typ 1) account whose data/devices this session actually
     concerns -- equal to `user_name` for a DIABETIKER user chatting about themselves, but a
@@ -321,6 +369,25 @@ def build_system_prompt(
             + (", rechne bei Bedarf von mg/dL um (÷ 18,0182)." if glucose_unit == "MMOL_L" else ".")
             + aid_note
         )
+
+    last_name = main_user_last_name.strip()
+    formatted_birth_date = _format_birth_date(main_user_birth_date.strip(), is_en)
+    full_name = f"{main_name} {last_name}".strip()
+    missing = [] if last_name else (["Nachname"] if not is_en else ["last name"])
+    missing += [] if formatted_birth_date else (["Geburtsdatum"] if not is_en else ["date of birth"])
+    if missing:
+        joiner = " and " if is_en else " und "
+        header_line = (_REPORT_HEADER_LINE_INCOMPLETE_EN if is_en else _REPORT_HEADER_LINE_INCOMPLETE_DE).format(
+            mainUserName=main_name, missingFields=joiner.join(missing),
+        )
+    else:
+        header_line = (_REPORT_HEADER_LINE_COMPLETE_EN if is_en else _REPORT_HEADER_LINE_COMPLETE_DE).format(
+            fullName=full_name, birthDate=formatted_birth_date,
+        )
+    report_instruction = (_REPORT_HEADER_INSTRUCTION_EN if is_en else _REPORT_HEADER_INSTRUCTION_DE).format(
+        reportHeaderLine=header_line,
+    )
+    text += report_instruction
 
     text += _GROUNDING_INSTRUCTION_EN if is_en else _GROUNDING_INSTRUCTION_DE
     text += lang_instruction
