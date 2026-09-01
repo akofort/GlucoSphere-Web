@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: self-hosted
+        runs-on: [self-hosted, glucosphere]
     steps:
       - uses: actions/checkout@v4
 
