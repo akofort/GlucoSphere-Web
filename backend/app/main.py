@@ -1235,7 +1235,7 @@ class SendMessageRequest(BaseModel):
     selectedSourceIds: list[str] | None = None
 
 
-_MAX_TOOL_ITERATIONS = 5
+_MAX_TOOL_ITERATIONS = 10
 
 
 def _extract_notices(tool_result: str) -> list[str]:
